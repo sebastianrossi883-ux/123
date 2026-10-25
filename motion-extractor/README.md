@@ -46,6 +46,35 @@ Opzioni: `--max-scroll 15000` (px da scorrere), `--step 400` (px per step), `--p
 `--hover-targets 6`, `--parallel 3` (più siti alla volta), `--fast` (step 600px e pause 1.3s:
 circa 2× più veloce, start/end meno precisi).
 
+## Tanti siti (centinaia)
+
+```bash
+node src/collect-links.mjs https://gsap.com/showcase/ --out urls.txt
+node src/cli.mjs --file urls.txt --parallel 4 --fast --no-video
+```
+
+- `out/index.csv`: una riga per sito con esito (`ok`, `vuoto`, `errore`), secondi, scene, preset e cartella.
+- Se lo interrompi, rilancia lo stesso comando: i siti `ok` vengono saltati (`--force` per rifarli);
+  quelli `vuoto` (pagina caricata ma niente movimento: protezione anti-bot, muro dei cookie) ed
+  `errore` vengono ritentati.
+- `--timeout 300`: secondi massimi per sito, poi passa al successivo.
+- I banner dei cookie vengono chiusi da soli (bottoni "Accetta", "Accept all", "OK"…).
+- `--parallel` al massimo pari ai core del computer meno uno: oltre, i fotogrammi rallentano e i tempi
+  misurati peggiorano.
+
+Tempi misurati su una pagina di 9,7 schermate (computer a 4 core):
+
+| modalità | per sito | 500 siti |
+|---|---|---|
+| normale | 56s | ~8–10 ore |
+| `--fast --no-video` | 33s | ~5 ore |
+| `--fast --no-video --parallel 4` | 33–35s ciascuno, 4 insieme | **~1,5–2 ore** |
+
+Un sito più lungo ci mette di più (≈5s per schermata in modalità normale, ≈2,2s in `--fast`).
+In `--fast` coreografia, easing, durate, stagger, pin e parallax restano precisi; lo **scrub** invece
+viene sottostimato (non c'è tempo di aspettare che l'elemento raggiunga lo scroll): per i siti che
+vuoi replicare davvero, rilanciali senza `--fast`.
+
 ## Cosa ottieni (in `out/<sito>-<data>/`)
 
 | File | Contenuto |

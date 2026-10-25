@@ -220,17 +220,31 @@ export function analyze(dump) {
       }
     : null;
   const scroll = virtualScroll ? [[0, 0], ...steps.map((m) => [m.t, m.info])] : dump.scroll;
-  const bursts = scrollBursts(scroll);
+  // One burst per wheel step the extractor sent (smooth scrolling never fully stops between short
+  // pauses, so splitting the scroll series on gaps would merge steps). Older dumps: split on gaps.
+  const bursts = steps.length
+    ? steps
+        .map((m, i) => {
+          const next = steps[i + 1] ? steps[i + 1].t : Infinity;
+          const inside = scroll.filter(([t]) => t >= m.t && t < next);
+          if (!inside.length) return null;
+          const last = inside[inside.length - 1];
+          return { tStart: m.t, tEnd: virtualScroll ? m.t + 150 : last[0], sTo: last[1] };
+        })
+        .filter(Boolean)
+    : scrollBursts(scroll);
   const phaseAt = (t) => {
     let m = null;
     for (const k of marks) if (k.t <= t) m = k;
     return m ? { phase: m.phase === 'settle' ? 'hover' : m.phase, info: m.info } : { phase: 'intro', info: null };
   };
-  // The last 400ms of every pause (and of the intro): only loops still move there.
-  const stillTails = bursts
-    .map((b, i) => [i ? bursts[i - 1].tEnd : 0, b.tStart])
-    .filter(([from, to]) => to - from > 800)
-    .map(([, to]) => [to - 400, to]);
+  // The last 300ms of every moment the page is really still (and of the intro): only loops move there.
+  const stillTails = (virtualScroll
+    ? bursts.map((b, i) => [i ? bursts[i - 1].tEnd : 0, b.tStart])
+    : scroll.map(([t], i) => [i ? scroll[i - 1][0] : 0, t])
+  )
+    .filter(([from, to]) => to - from > 700)
+    .map(([, to]) => [to - 300, to]);
   const animations = [];
 
   for (const el of dump.tracked) {

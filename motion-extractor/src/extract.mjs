@@ -25,6 +25,7 @@ export const DEFAULTS = {
   video: true,
   headed: false,
   interaction: true,
+  timeout: 300,
   hoverTargets: 6,
 };
 
@@ -34,16 +35,35 @@ function safeName(s) {
 
 export async function extract(url, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
-  const started = Date.now();
-  const host = new URL(url).hostname;
-  const outDir = path.resolve(o.out, `${safeName(host)}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
-  await mkdir(path.join(outDir, 'screens'), { recursive: true });
-  const log = (...a) => o.quiet || console.log(`[${host}]`, ...a);
-
   const browser = await chromium.launch({
     headless: !o.headed,
     executablePath: process.env.CHROMIUM_PATH || undefined,
   });
+  // A site that hangs must not block a batch: closing the browser makes every pending step fail.
+  let timedOut = false;
+  const killer = setTimeout(() => {
+    timedOut = true;
+    browser.close().catch(() => {});
+  }, o.timeout * 1000);
+  try {
+    return await extractWith(browser, url, o);
+  } catch (e) {
+    throw timedOut ? new Error(`timeout dopo ${o.timeout}s`) : e;
+  } finally {
+    clearTimeout(killer);
+    await browser.close().catch(() => {});
+  }
+}
+
+async function extractWith(browser, url, o) {
+  const started = Date.now();
+  const host = new URL(url).hostname;
+  // Unique folder even for the same site analysed twice in the same second (parallel runs).
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const outDir = path.resolve(o.out, `${safeName(url).slice(0, 80)}-${stamp}-${Math.random().toString(36).slice(2, 6)}`);
+  await mkdir(path.join(outDir, 'screens'), { recursive: true });
+  const log = (...a) => o.quiet || console.log(`[${host}]`, ...a);
+
   const context = await browser.newContext({
     viewport: { width: o.width, height: o.height },
     reducedMotion: 'no-preference',
@@ -62,12 +82,18 @@ export async function extract(url, opts = {}) {
   });
 
   log('apro la pagina…');
+  let response = null;
   try {
-    await page.goto(url, { waitUntil: 'load', timeout: 60000 });
-  } catch {
+    response = await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+  } catch (e) {
+    const net = e.message.match(/net::[A-Z_]+/);
+    if (net) throw new Error(`sito non raggiungibile (${net[0]})`);
     log('load lento, continuo con quello che c’è');
   }
+  if (response && response.status() >= 400) throw new Error(`HTTP ${response.status()}`);
   await sleep(o.intro);
+  const consent = await dismissConsent(page);
+  if (consent) log(`banner cookie chiuso ("${consent}")`);
   await page.screenshot({ path: path.join(outDir, 'screens', '000-top.png') });
 
   if (o.interaction) {
@@ -155,7 +181,6 @@ export async function extract(url, opts = {}) {
   const uniqueSnippets = snippets.filter((s) => (seen.has(s.code) ? false : seen.add(s.code)));
 
   await context.close();
-  await browser.close();
   if (o.video) {
     const vid = (await readdir(outDir)).find((f) => f.endsWith('.webm'));
     if (vid) await rename(path.join(outDir, vid), path.join(outDir, 'recording.webm'));
@@ -182,6 +207,25 @@ export async function extract(url, opts = {}) {
   const seconds = Math.round((Date.now() - started) / 1000);
   log(`fatto in ${seconds}s → ${path.join(outDir, 'spec.md')}`);
   return { seconds, kit, outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
+}
+
+// Cookie/consent banners cover the page or block the scroll: click their accept button.
+async function dismissConsent(page) {
+  const clicked = await page
+    .evaluate(() => {
+      const re = /^(accetta|accetto|accept|accept all|allow all|agree|i agree|ok|got it|consenti|accetta tutti|tout accepter|alle akzeptieren|aceptar)\b/i;
+      const btn = [...document.querySelectorAll('button, a, [role="button"]')].find((b) => {
+        const r = b.getBoundingClientRect();
+        const text = (b.innerText || '').trim();
+        return r.width > 0 && r.height > 0 && text.length < 40 && re.test(text);
+      });
+      if (!btn) return null;
+      btn.click();
+      return btn.innerText.trim();
+    })
+    .catch(() => null);
+  if (clicked) await sleep(800);
+  return clicked;
 }
 
 async function ensure(dir, sub) {
