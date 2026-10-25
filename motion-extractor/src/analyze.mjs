@@ -12,7 +12,12 @@ const EASE_NAMES = [
 const EASES = EASE_NAMES.map((name) => ({ name, fn: gsap.parseEase(name) }));
 
 // Smallest change that counts as a real animation, per channel family.
-const MIN_AMPLITUDE = { x: 3, y: 3, scaleX: 0.02, scaleY: 0.02, rotate: 2, opacity: 0.05, clip: 2, filter: 0.5 };
+const MIN_AMPLITUDE = {
+  x: 3, y: 3, scaleX: 0.02, scaleY: 0.02, rotate: 2, opacity: 0.05, clip: 2, filter: 0.5,
+  width: 3, height: 3, bg: 8, color: 8, radius: 1, dash: 2, ls: 0.2,
+};
+// Channels kept as CSS strings (several numbers each) rather than a single number.
+export const RAW = new Set(['clip', 'filter', 'bg', 'color', 'radius']);
 const family = (ch) => ch.replace(/\d+$/, '');
 const numbers = (s) => (s && s !== 'none' ? (s.slice(s.indexOf('(')).match(/-?\d*\.?\d+(?:e-?\d+)?/g) || []).map(Number) : []);
 
@@ -23,12 +28,23 @@ function parseTransform(s) {
   return { x: tx, y: ty, scaleX: Math.hypot(a, b), scaleY: Math.hypot(c, d), rotate: (Math.atan2(b, a) * 180) / Math.PI };
 }
 
-function parseRows(rows) {
-  return rows.map(([t, s, transform, opacity, clip, filter, top, h, vh]) => {
+const px = (s) => (s && /^-?[\d.]+px$/.test(s) ? parseFloat(s) : undefined);
+
+function parseRows(rows, scrollAt) {
+  return rows.map(([t, s, transform, opacity, clip, filter, top, h, vh, width, height, bg, color, radius, dash, ls]) => {
     const ch = { ...parseTransform(transform), opacity };
     numbers(clip).forEach((v, i) => (ch['clip' + i] = v));
     numbers(filter).forEach((v, i) => (ch['filter' + i] = v));
-    return { t, s, ch, clip, filter, top, h, vh };
+    if (width !== undefined) {
+      if (px(width) !== undefined) ch.width = px(width);
+      if (px(height) !== undefined) ch.height = px(height);
+      numbers(bg).forEach((v, i) => (ch['bg' + i] = v));
+      numbers(color).forEach((v, i) => (ch['color' + i] = v));
+      numbers('(' + radius).forEach((v, i) => (ch['radius' + i] = v));
+      if (px(dash) !== undefined || /^-?[\d.]+$/.test(dash || '')) ch.dash = parseFloat(dash);
+      if (px(ls) !== undefined) ch.ls = px(ls);
+    }
+    return { t, s: scrollAt ? scrollAt(t) : s, ch, clip, filter, bg, color, radius, top, h, vh };
   });
 }
 
@@ -113,7 +129,7 @@ function scrollLinked(el, ch, segs, moves, bursts) {
     scrub: lag < 80 ? true : round(lag / 1000, 1),
     scrubLagMs: Math.round(lag),
     // Value at evenly spaced scroll positions (as seen on screen, scrub lag included).
-    samples: evenly(moves, 10).map((m) => ({ scroll: m.row.s, t: m.t, value: m.row.ch[ch], clip: m.row.clip, filter: m.row.filter })),
+    samples: evenly(moves, 10).map((m) => ({ scroll: m.row.s, t: m.t, value: m.row.ch[ch], clip: m.row.clip, filter: m.row.filter, bg: m.row.bg, color: m.row.color, radius: m.row.radius })),
   };
 }
 
@@ -148,6 +164,12 @@ export function propsFor(ch, value, row) {
   const f = family(ch);
   if (f === 'clip') return { clipPath: roundCss(row.clip) };
   if (f === 'filter') return { filter: roundCss(row.filter) };
+  if (f === 'bg') return { backgroundColor: row.bg };
+  if (f === 'color') return { color: row.color };
+  if (f === 'radius') return { borderRadius: row.radius };
+  if (f === 'dash') return { strokeDashoffset: round(value, 1) };
+  if (f === 'ls') return { letterSpacing: `${round(value, 2)}px` };
+  if (f === 'width' || f === 'height') return { [f]: `${Math.round(value)}px` };
   if (ch === 'rotate') return { rotation: round(value, 1) };
   if (ch === 'opacity') return { opacity: round(value, 2) };
   if (ch === 'y' || ch === 'x') {
@@ -184,8 +206,21 @@ export function mergeScale(obj) {
 }
 
 export function analyze(dump) {
-  const bursts = scrollBursts(dump.scroll);
-  const marks = dump.marks || [];
+  const allMarks = dump.marks || [];
+  const marks = allMarks.filter((m) => m.phase !== 'step');
+  // Sites that scroll a transformed container (Locomotive, custom smooth scroll) never move
+  // window.scrollY: use the wheel distance the extractor sent as a virtual scroll position.
+  const steps = allMarks.filter((m) => m.phase === 'step');
+  const virtualScroll = dump.scroll.length < 3 && steps.length >= 3;
+  const scrollAt = virtualScroll
+    ? (t) => {
+        let v = 0;
+        for (const m of steps) if (m.t <= t) v = m.info;
+        return v;
+      }
+    : null;
+  const scroll = virtualScroll ? [[0, 0], ...steps.map((m) => [m.t, m.info])] : dump.scroll;
+  const bursts = scrollBursts(scroll);
   const phaseAt = (t) => {
     let m = null;
     for (const k of marks) if (k.t <= t) m = k;
@@ -199,7 +234,7 @@ export function analyze(dump) {
   const animations = [];
 
   for (const el of dump.tracked) {
-    const prows = parseRows(el.rows);
+    const prows = parseRows(el.rows, scrollAt);
     const channels = [...new Set(prows.flatMap((r) => Object.keys(r.ch)))];
     const timeSegs = [];
 
@@ -254,7 +289,7 @@ export function analyze(dump) {
   }
 
   detectStagger(animations.filter((a) => a.kind === 'time'));
-  return { bursts: bursts.length, animations };
+  return { bursts: bursts.length, virtualScroll, animations };
 }
 
 function signature(a) {

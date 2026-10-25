@@ -5,7 +5,7 @@
 (() => {
   if (window.top !== window || window.__motion) return;
 
-  const MAX_TRACKED = 120;
+  const MAX_TRACKED = 400;
   const MAX_CALLS = 1000;
   const t0 = performance.now();
   const now = () => Math.round(performance.now() - t0);
@@ -73,7 +73,7 @@
   // ---- 1. Which elements are being animated (inline style mutations) ----
   function track(el) {
     if (el.__motionId || S.tracked.length >= MAX_TRACKED) return;
-    if (el === document.documentElement || el === document.body) return;
+    if (el === document.documentElement) return;
     el.__motionId = nextId++;
     S.tracked.push({
       id: el.__motionId,
@@ -88,7 +88,7 @@
   }
   new MutationObserver((ms) => {
     for (const m of ms) if (m.target.nodeType === 1) track(m.target);
-  }).observe(document, { attributes: true, attributeFilter: ['style'], subtree: true });
+  }).observe(document, { attributes: true, attributeFilter: ['style', 'class'], subtree: true });
 
   // ---- 2. Per-frame sampling of computed values ----
   let lastScroll = null;
@@ -105,18 +105,23 @@
     for (const it of S.tracked) {
       if (!it.el.isConnected) continue;
       const cs = getComputedStyle(it.el);
-      const key = cs.transform + '|' + cs.opacity + '|' + cs.clipPath + '|' + cs.filter;
+      const key = [cs.transform, cs.opacity, cs.clipPath, cs.filter, cs.width, cs.height, cs.backgroundColor, cs.color, cs.borderRadius, cs.strokeDashoffset, cs.letterSpacing].join('|');
       if (key === it.last) continue;
       it.last = key;
       const r = it.el.getBoundingClientRect();
       // [time, scrollY, transform, opacity, clipPath, filter, rectTop, rectHeight, viewportH]
-      it.rows.push([t, sy, cs.transform, +cs.opacity, cs.clipPath, cs.filter, Math.round(r.top), Math.round(r.height), vh]);
+      // [time, scrollY, transform, opacity, clipPath, filter, rectTop, rectHeight, viewportH,
+      //  width, height, backgroundColor, color, borderRadius, strokeDashoffset, letterSpacing]
+      it.rows.push([t, sy, cs.transform, +cs.opacity, cs.clipPath, cs.filter, Math.round(r.top), Math.round(r.height), vh,
+        cs.width, cs.height, cs.backgroundColor, cs.color, cs.borderRadius, cs.strokeDashoffset, cs.letterSpacing]);
     }
     if (t - lastCssScan > 250 && document.getAnimations) {
       lastCssScan = t;
       for (const a of document.getAnimations()) {
         if (seenAnims.has(a) || S.cssAnimations.length > 300) continue;
         seenAnims.add(a);
+        // CSS animations/transitions (e.g. triggered by an `.is-visible` class) get sampled too.
+        if (a.effect && a.effect.target instanceof Element) track(a.effect.target);
         try {
           const timing = a.effect && a.effect.getTiming ? a.effect.getTiming() : {};
           S.cssAnimations.push({

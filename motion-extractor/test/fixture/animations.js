@@ -45,6 +45,21 @@ export function run({ gsap, ScrollTrigger, CustomEase, Lenis }) {
   const cy = gsap.quickTo('.cursor', 'y', { duration: 0.4, ease: 'power3' });
   window.addEventListener('mousemove', (e) => { cx(e.clientX); cy(e.clientY); });
 
+  // SVG line drawing itself.
+  gsap.fromTo('.line-draw path', { strokeDashoffset: 600 }, {
+    strokeDashoffset: 0, duration: 1.5, ease: 'power2.inOut',
+    scrollTrigger: { trigger: '.extras', start: 'top 75%' },
+  });
+  // Color change + per-character title.
+  gsap.fromTo('.badge', { backgroundColor: '#333333', color: '#eeeeee' }, {
+    backgroundColor: '#e4572e', color: '#111111', duration: 0.9, ease: 'power1.out',
+    scrollTrigger: { trigger: '.extras', start: 'top 75%' },
+  });
+  gsap.from('.chars span', {
+    yPercent: 110, opacity: 0, duration: 0.7, ease: 'back.out', stagger: 0.03,
+    scrollTrigger: { trigger: '.chars', start: 'top 80%' },
+  });
+
   // Endless marquee.
   gsap.to('.marquee-track', { xPercent: -50, duration: 20, ease: 'none', repeat: -1 });
 }

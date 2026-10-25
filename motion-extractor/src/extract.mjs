@@ -15,7 +15,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export const DEFAULTS = {
   out: 'out',
-  maxScroll: 15000,
+  maxScroll: 40000,
   step: 400,
   pause: 2000,
   intro: 4000,
@@ -94,18 +94,25 @@ export async function extract(url, opts = {}) {
   let scrolled = 0;
   let stuck = 0;
   let shot = 1;
+  // scrollY plus the position of the last elements: also moves on sites that scroll a transformed container.
+  const probe = () =>
+    page.evaluate(() => {
+      const els = [...document.body.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().height > 0).slice(-3);
+      return [Math.round(window.scrollY), ...els.map((e) => Math.round(e.getBoundingClientRect().top))].join(',');
+    });
   while (scrolled < o.maxScroll && stuck < 2) {
-    const before = await page.evaluate(() => window.scrollY);
+    const before = await probe();
+    await page.evaluate((c) => window.__motionMark('step', c), scrolled + o.step);
     for (let d = 0; d < o.step; d += 100) {
       await page.mouse.wheel(0, 100);
       await sleep(30);
     }
     await sleep(o.pause);
-    const after = await page.evaluate(() => window.scrollY);
-    stuck = after - before < 5 ? stuck + 1 : 0;
+    const after = await probe();
+    stuck = after === before ? stuck + 1 : 0;
     scrolled += o.step;
     if (Math.floor(scrolled / o.height) >= shot) {
-      await page.screenshot({ path: path.join(outDir, 'screens', `${String(shot).padStart(3, '0')}-scroll-${Math.round(after)}.png`) });
+      await page.screenshot({ path: path.join(outDir, 'screens', `${String(shot).padStart(3, '0')}-scroll-${scrolled}.png`) });
       shot++;
     }
   }

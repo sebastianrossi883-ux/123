@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixture virtual scroll</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d0d0d; color: #eee; font-family: system-ui, sans-serif; }
+  .scroller { position: fixed; inset: 0 0 auto 0; will-change: transform; }
+  section { height: 100vh; padding: 10vh 8vw; box-sizing: border-box; }
+  .float { width: 30vw; height: 40vh; background: #3b75c4; border-radius: 12px; }
+  .card { width: 40vw; height: 30vh; background: #e4572e; border-radius: 12px; }
+</style>
+</head>
+<body>
+  <!-- Scrolls a transformed container instead of the window (like Locomotive Scroll). -->
+  <div class="scroller">
+    <section><h1>Scroll virtuale</h1></section>
+    <section><div class="float"></div></section>
+    <section><div class="card"></div></section>
+    <section><p>Fine.</p></section>
+  </div>
+  <script src="gsap.min.js"></script>
+  <script>
+    const scroller = document.querySelector('.scroller');
+    const max = scroller.scrollHeight - innerHeight;
+    const float = document.querySelector('.float');
+    let target = 0, current = 0, cardShown = false;
+    addEventListener('wheel', (e) => { target = Math.max(0, Math.min(max, target + e.deltaY)); }, { passive: true });
+    gsap.ticker.add(() => {
+      current += (target - current) * 0.12;
+      gsap.set(scroller, { y: -current });
+      gsap.set(float, { y: current * 0.3 - 200 });
+      if (!cardShown && current > innerHeight * 1.4) {
+        cardShown = true;
+        gsap.fromTo('.card', { x: -120, opacity: 0 }, { x: 0, opacity: 1, duration: 1.1, ease: 'expo.out' });
+      }
+    });
+  </script>
+</body>
+</html>

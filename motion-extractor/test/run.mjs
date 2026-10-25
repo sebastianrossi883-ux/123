@@ -38,13 +38,14 @@ async function check(name, fn) {
 }
 
 const results = {};
-for (const page of ['bundled', 'sourcemap', 'global']) {
+for (const page of ['bundled', 'sourcemap', 'global', 'virtual']) {
   results[page] = await extract(`${base}/${page}.html`, opts);
   console.log(`  ${page}: ${results[page].outDir}`);
 }
 server.close();
+const mainResults = () => Object.entries(results).filter(([p]) => p !== 'virtual');
 
-for (const [page, r] of Object.entries(results)) {
+for (const [page, r] of mainResults()) {
   const anims = r.result.animations;
   const by = (sel, kind) => anims.filter((a) => a.element.selector.includes(sel) && (!kind || a.kind === kind));
 
@@ -81,7 +82,7 @@ for (const [page, r] of Object.entries(results)) {
   });
 }
 
-for (const [page, r] of Object.entries(results)) {
+for (const [page, r] of mainResults()) {
   const { dna, scene } = r;
   await check(`${page}: scena con regia titolo → testo → media e offset sovrapposti`, () => {
     const sc = dna.scenes.find((s) => s.section.includes('story'));
@@ -115,7 +116,7 @@ for (const [page, r] of Object.entries(results)) {
   });
 }
 
-for (const [page, r] of Object.entries(results)) {
+for (const [page, r] of mainResults()) {
   const spec = await readFile(path.join(r.outDir, 'spec.md'), 'utf8');
   await check(`${page}: scheda tecnica con ogni sezione, elemento e keyframe in px`, () => {
     const sections = spec.split('\n## Sezione ').length - 1;
@@ -136,6 +137,33 @@ for (const [page, r] of Object.entries(results)) {
   });
   await check(`${page}: tempo di estrazione sotto i 90s`, () => assert.ok(r.seconds < 90, `${r.seconds}s`));
 }
+
+for (const [page, r] of mainResults()) {
+  const anims = r.result.animations;
+  const by = (sel) => anims.filter((a) => a.element.selector.includes(sel));
+  await check(`${page}: linea SVG che si disegna, cambio colore, lettere, transizione CSS da classe`, () => {
+    const line = by('line-draw').find((a) => a.kind === 'time' && a.segs.some((s) => s.ch === 'dash'));
+    assert.ok(line, 'stroke-dashoffset non misurato');
+    assert.ok(/power2\.inOut|sine\.inOut|power1\.inOut/.test(line.ease.best.name), `ease linea ${line.ease.best.name}`);
+    const badge = by('badge').find((a) => a.segs.some((s) => s.ch.startsWith('bg')));
+    assert.ok(badge, 'background-color non misurato');
+    const chars = by('chars').filter((a) => a.kind === 'time');
+    assert.ok(chars.length >= 25, `solo ${chars.length} lettere`);
+    assert.ok(chars[0].stagger && Math.abs(chars[0].stagger.each - 0.03) < 0.01, `stagger lettere ${chars[0].stagger && chars[0].stagger.each}`);
+    const css = by('css-in').find((a) => a.kind === 'time' && a.segs.some((s) => s.ch === 'y'));
+    assert.ok(css, 'transizione CSS da classe non misurata');
+    assert.ok(Math.abs(css.duration - 900) < 120, `durata transizione ${css.duration}`);
+  });
+}
+await check('virtual: scroll di un contenitore (senza window.scrollY)', () => {
+  const r = results.virtual;
+  assert.ok(r.result.virtualScroll, 'scroll virtuale non attivato');
+  const anims = r.result.animations;
+  const card = anims.find((a) => a.element.selector.includes('card') && a.kind === 'time');
+  assert.ok(card && card.phase === 'scroll', 'card non legata allo scroll: ' + (card && card.phase));
+  assert.ok(/expo\.out|power4\.out/.test(card.ease.best.name), `ease card ${card && card.ease.best.name}`);
+  assert.ok(anims.some((a) => a.element.selector.includes('float') && a.kind === 'scroll'), 'parallax virtuale non rilevato');
+});
 
 await check('bundled: snippet leggibili dal bundle minificato', () => {
   const code = results.bundled.snippets.map((s) => s.code).join('\n');

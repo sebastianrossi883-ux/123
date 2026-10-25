@@ -2,19 +2,23 @@
 // and for every animated element: trigger, timing, easing, start/end values and keyframes.
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { propsFor, mergeScale, sameUnits } from './analyze.mjs';
+import { propsFor, mergeScale, sameUnits, RAW } from './analyze.mjs';
 
 const family = (ch) => ch.replace(/\d+$/, '');
 const r1 = (v) => Math.round(v * 10) / 10;
 const ROLE = { heading: 'titolo', text: 'testo', media: 'media', button: 'bottone', shape: 'forma' };
-const PROP = { x: 'x (translateX)', y: 'y (translateY)', scaleX: 'scaleX', scaleY: 'scaleY', rotate: 'rotazione', opacity: 'opacity', clip: 'clip-path', filter: 'filter' };
+const PROP = {
+  x: 'x (translateX)', y: 'y (translateY)', scaleX: 'scaleX', scaleY: 'scaleY', rotate: 'rotazione', opacity: 'opacity',
+  clip: 'clip-path', filter: 'filter', width: 'width', height: 'height', bg: 'background-color', color: 'color',
+  radius: 'border-radius', dash: 'stroke-dashoffset (linea che si disegna)', ls: 'letter-spacing',
+};
 const KEYFRAMES = [0, 10, 25, 50, 75, 90, 100];
 const md = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 function fmt(ch, v) {
   const f = family(ch);
   if (v == null || Number.isNaN(v)) return '—';
-  if (f === 'x' || f === 'y') return `${r1(v)}px`;
+  if (f === 'x' || f === 'y' || f === 'width' || f === 'height' || f === 'ls') return `${r1(v)}px`;
   if (f === 'rotate') return `${r1(v)}°`;
   if (f === 'opacity') return (Math.round(v * 100) / 100).toString();
   if (f === 'scaleX' || f === 'scaleY') return (Math.round(v * 1000) / 1000).toString();
@@ -43,7 +47,7 @@ function properties(a) {
   const h = a.element.meta && a.element.meta.h;
   for (const s of a.segs) {
     const f = family(s.ch);
-    if (f === 'clip' || f === 'filter') {
+    if (RAW.has(f)) {
       if (seen.has(f)) continue;
       seen.add(f);
       out.push({ prop: PROP[f], ch: s.ch, from: s.before[f], to: s.last[f], delta: null });
@@ -63,7 +67,7 @@ function keyframes(a) {
   const seen = new Set();
   for (const s of a.segs) {
     const f = family(s.ch);
-    if ((f === 'clip' || f === 'filter') && seen.has(f)) continue;
+    if (RAW.has(f) && seen.has(f)) continue;
     seen.add(f);
     cols.push(s);
   }
@@ -77,7 +81,7 @@ function keyframes(a) {
         values: cols.map((s) => {
           const f = family(s.ch);
           const { v, row } = valueAt(s, t);
-          return f === 'clip' || f === 'filter' ? row[f] : fmt(s.ch, v);
+          return RAW.has(f) ? row[f] : fmt(s.ch, v);
         }),
       };
     }),
@@ -154,7 +158,7 @@ function animSpec(a, n, vh) {
     L.push(`- **Movimento**: ${PROP[family(a.ch)] || a.ch} continuo a ${a.speedPerSecond} ${family(a.ch) === 'rotate' ? '°' : 'px'}/s, senza fine`);
   } else if (a.kind === 'scroll') {
     const f = family(a.ch);
-    const isRaw = f === 'clip' || f === 'filter';
+    const isRaw = RAW.has(f);
     L.push(
       `- **Intervallo di scroll**: da ${a.scrollStart}px a ${a.scrollEnd}px (${a.scrollEnd - a.scrollStart}px di scroll) · start ≈ \`${a.triggerStart}\` · end ≈ \`${a.triggerEnd}\``,
       `- **Scrub**: ${a.scrub === true ? 'true (segue lo scroll senza ritardo)' : `${a.scrub} (l'elemento raggiunge lo scroll ${a.scrubLagMs}ms dopo che ti fermi)`}`,

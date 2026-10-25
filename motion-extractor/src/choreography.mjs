@@ -22,6 +22,10 @@ export function revealType(a) {
   const x = seg('x');
   const sc = seg('scaleX') || seg('scaleY');
   if (has('clip')) return 'clip-reveal';
+  if (has('dash')) return 'draw-line';
+  if (has('width') || has('height')) return 'grow';
+  if ((has('bg') || has('color')) && !y && !x && !sc) return 'color-shift';
+  if (has('ls')) return 'letter-spacing';
   if (has('filter')) return 'blur-in';
   if ((y || x) && meta.masked) return 'mask-slide';
   if (y && has('opacity')) return y.from > y.to ? 'fade-up' : 'fade-down';
@@ -44,8 +48,7 @@ function propsSummary(a) {
         const p = h && f === 'y' ? ` (${Math.round((d / h) * 100)}% dell'altezza)` : '';
         return `${f} ${Math.round(s.from)}→${Math.round(s.to)}px${p}`;
       }
-      if (f === 'clip') return `clip ${s.before.clip} → ${s.last.clip}`;
-      if (f === 'filter') return `filter ${s.before.filter} → ${s.last.filter}`;
+      if (['clip', 'filter', 'bg', 'color', 'radius'].includes(f)) return `${f} ${s.before[f]} → ${s.last[f]}`;
       return `${s.ch} ${round(s.from)}→${round(s.to)}`;
     })
     .filter((v, i, arr) => arr.indexOf(v) === i)

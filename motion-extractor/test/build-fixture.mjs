@@ -35,4 +35,5 @@ await writeFile(path.join(dist, 'sourcemap.html'), html('sourcemap', '<script sr
 await writeFile(path.join(dist, 'global.html'), html('global', [
   'gsap.min.js', 'ScrollTrigger.min.js', 'CustomEase.min.js', 'lenis.min.js', 'app-global.js',
 ].map((s) => `<script src="${s}"></script>`).join('\n  ')));
+await copyFile(path.join(fx, 'virtual.html'), path.join(dist, 'virtual.html'));
 console.log('fixture pronta in', dist);
