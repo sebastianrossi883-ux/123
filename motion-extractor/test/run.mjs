@@ -228,6 +228,33 @@ await check('virtual: scroll di un contenitore (senza window.scrollY)', () => {
   });
 }
 
+{
+  const { buildCatalog, blend, verify } = await import('../src/dna-tools.mjs');
+  const { writeFile: wf } = await import('node:fs/promises');
+  const root = opts.out;
+  const cat = await buildCatalog(root);
+  await wf(path.join(root, 'catalog.json'), JSON.stringify(cat));
+  await check('catalogo: un DNA con impronta per ogni sito estratto', () => {
+    assert.ok(cat.count >= 5, `${cat.count} DNA`);
+    assert.ok(cat.entries.every((e) => typeof e.fingerprint.dur === 'number' && e.summary.ease), 'impronte incomplete');
+  });
+  const a = await blend({ catalogPath: path.join(root, 'catalog.json'), mood: 'elegante', seed: 11 });
+  const b = await blend({ catalogPath: path.join(root, 'catalog.json'), mood: 'elegante', seed: 11 });
+  const c = await blend({ catalogPath: path.join(root, 'catalog.json'), mood: 'elegante', seed: 12 });
+  await check('mix: stesso seed → stesso DNA, seed diverso → DNA diverso, e mai una copia', () => {
+    assert.deepEqual(a.kit.presets, b.kit.presets);
+    assert.notDeepEqual(a.kit.presets, c.kit.presets);
+    assert.ok(a.kit.blend.unique && a.nearest[0].d >= 0.08, `distanza ${a.nearest[0].d}`);
+    for (const [role, r] of Object.entries(a.kit.roles)) assert.ok(a.kit.presets[r.preset], `il casting di ${role} punta a un preset mancante`);
+  });
+  await check('verifica: il sito animato col suo DNA passa, con un DNA diverso no', () => {
+    const good = verify(results.bundled.kit, roundTrip);
+    const bad = verify(results.virtual.kit, roundTrip);
+    assert.ok(good.score >= 0.8, `col suo DNA ${good.score}`);
+    assert.ok(bad.score < 0.6, `con un DNA diverso ${bad.score}`);
+  });
+}
+
 await check('bundled: snippet leggibili dal bundle minificato', () => {
   const code = results.bundled.snippets.map((s) => s.code).join('\n');
   for (const needle of ['scrollTrigger', '"expo.out"', 'scrub: 1', 'M0,0 C0.7,0 0.2,1 1,1', 'lerp: .08']) {

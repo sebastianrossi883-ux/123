@@ -46,6 +46,40 @@ Opzioni: `--max-scroll 15000` (px da scorrere), `--step 400` (px per step), `--p
 `--hover-targets 6`, `--parallel 3` (più siti alla volta), `--fast` (step 600px e pause 1.3s:
 circa 2× più veloce, start/end meno precisi).
 
+## Siti unici: catalogo, mix, verifica
+
+Usare il DNA di un solo sito per un cliente vuol dire copiarlo. Con tanti siti estratti puoi creare
+un DNA **nuovo**:
+
+```bash
+node src/dna.mjs catalog out                                   # out/catalog.html: tutti i DNA con la loro impronta
+node src/dna.mjs blend --mood elegante --name studio --seed 7  # blends/studio/: motion-kit.js, per-ia.md, provenienza.md
+node src/dna.mjs verify http://localhost:8080 --kit blends/studio/kit.json   # il sito finito si muove come il DNA?
+```
+
+- **Catalogo**: per ogni sito un'impronta numerica (durata, nitidezza dell'easing, distanze, stagger,
+  passo, sovrapposizione, parallax, quota di scroll, pin, loop, tipi di reveal), filtrabile per mood.
+- **Mix**: linguaggio del movimento da un sito, casting e coreografia da un secondo, regia dello scroll
+  da un terzo, poi ogni valore variato. Il mix controlla la distanza dal sito più simile del catalogo e
+  rigenera finché non è sopra la soglia (`--min-distance`, default 0.08). Mood: `elegante`, `energico`,
+  `minimale`, `editoriale`, `giocoso`, `cinematografico`. Stesso `--seed` = stesso DNA.
+- **Verifica**: misura il sito animato e confronta ogni animazione con i preset del DNA, i ritardi
+  nelle scene, parallax, pin e marquee → `verifica.md` con ✓/✗ e punteggio (fallisce sotto l'80%).
+- **Token per codice su misura**: `motionKit.tokens`, `motionKit.timeline()`, `motionKit.from(el, 'preset')`,
+  `motionKit.offset('heading', 'media')` — così un momento firma scritto a mano (con le skill GSAP)
+  resta nello stesso linguaggio.
+
+### Con le skill AI di GSAP
+
+```bash
+npx skills add https://github.com/greensock/gsap-skills      # API GSAP corretta (ufficiale)
+npx skills add https://github.com/sebastianrossi883-ux/123   # skills/motion-dna: come deve muoversi il sito
+```
+
+(oppure copia `skills/motion-dna/` nella cartella delle skill del tuo agente, es. `.claude/skills/`).
+La skill `motion-dna` guida l'IA: DNA nuovo con `blend` → tag dell'HTML con il kit → un solo momento
+firma scritto con GSAP usando i token → `verify` ≥ 80% → checklist di scenografia.
+
 ## Tanti siti (centinaia)
 
 ```bash

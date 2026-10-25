@@ -21,6 +21,32 @@
   }
   const easeOf = (e) => (DNA.customEases && DNA.customEases[e] && !CustomEase ? 'power2.out' : e);
 
+  // Token API for bespoke GSAP code: same eases, durations and offsets as the presets.
+  const T = DNA.tokens || {};
+  const presetVars = (name, overrides = {}) => {
+    const p = DNA.presets[name];
+    if (!p) throw new Error(`[motion-kit] preset "${name}" inesistente. Disponibili: ${Object.keys(DNA.presets).join(', ')}`);
+    return { from: { ...p.from }, to: { ...p.to, duration: p.duration, ease: easeOf(p.ease), ...overrides } };
+  };
+  window.motionKit = {
+    DNA,
+    tokens: T,
+    reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    vars: presetVars,
+    from(targets, name, overrides) {
+      const { from, to } = presetVars(name, overrides);
+      if (to.stagger == null) to.stagger = DNA.presets[name].stagger; // ignored by GSAP with a single target
+      return gsap.fromTo(targets, from, to);
+    },
+    timeline(vars = {}) {
+      return gsap.timeline({ ...vars, defaults: { ease: easeOf(T.ease ? T.ease.primary : 'power2.out'), duration: T.duration ? T.duration.base : 0.9, ...(vars.defaults || {}) } });
+    },
+    offset(prevRole, role) {
+      return DNA.scene.pairOffsets[`${prevRole}>${role}`] ?? DNA.scene.step;
+    },
+    refresh: () => ScrollTrigger.refresh(),
+  };
+
   function start() {
     if (reduce) {
       document.querySelectorAll('[data-motion]').forEach((el) => gsap.set(el, { clearProps: 'all' }));
@@ -192,7 +218,7 @@
 
     ScrollTrigger.refresh();
     console.info(`[motion-kit] ${stats.elements} elementi in ${stats.scenes} scene${stats.warnings ? `, ${stats.warnings} avvisi` : ''} — DNA da ${DNA.source}`);
-    window.motionKit = { DNA, stats, refresh: () => ScrollTrigger.refresh() };
+    window.motionKit.stats = stats;
   }
 
   // Split text after fonts load, so lines are measured with the real font.

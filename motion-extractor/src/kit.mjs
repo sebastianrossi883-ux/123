@@ -244,7 +244,28 @@ export function buildKit({ url, result, dna, scene, snippets, libs }) {
     hovers,
     lenis: usesLenis ? { lerp: lerp ? +lerp[1] : 0.1, wheelMultiplier: wheel ? +wheel[1] : 1 } : null,
   };
+  kit.tokens = tokensOf(kit);
   return kit;
+}
+
+// Design tokens of the motion: what custom GSAP code (e.g. written with the GSAP AI skills)
+// must use so a bespoke moment still feels like the rest of the site.
+export function tokensOf(kit) {
+  const list = Object.values(kit.presets);
+  const weight = (p) => p.groups || p.measuredOn || 1;
+  const byWeight = [...list].sort((a, b) => weight(b) - weight(a));
+  const durations = list.map((p) => p.duration).sort((a, b) => a - b);
+  const staggers = list.map((p) => p.stagger).filter((s) => s > 0).sort((a, b) => a - b);
+  const ys = list.map((p) => p.from.y).filter((y) => typeof y === 'number').sort((a, b) => a - b);
+  return {
+    ease: { primary: byWeight[0] ? byWeight[0].ease : 'power2.out', all: [...new Set(byWeight.map((p) => p.ease))] },
+    duration: durations.length
+      ? { short: durations[0], base: durations[Math.floor(durations.length / 2)], long: durations[durations.length - 1] }
+      : { short: 0.5, base: 0.9, long: 1.4 },
+    stagger: staggers.length ? staggers[Math.floor(staggers.length / 2)] : 0.08,
+    step: kit.scene.step,
+    distanceY: ys.length ? ys[Math.floor(ys.length / 2)] : 40,
+  };
 }
 
 export function kitScript(kit) {
@@ -366,7 +387,23 @@ export function aiInstructions(kit, { title, url }) {
     '<div class="cover" style="overflow:hidden;height:80vh"><img data-parallax src="cover.jpg" style="height:120%"></div>',
     '```',
     '',
-    '## 7. Controllo finale',
+    '## 7. Momenti su misura (con le skill GSAP)',
+    '',
+    'Per un momento firma che il kit non copre (hero speciale, transizione di pagina, galleria interattiva) scrivi codice GSAP',
+    "(usa le skill ufficiali gsap-core / gsap-timeline / gsap-scrolltrigger per l'API), ma **solo con i token del DNA**:",
+    '',
+    '```js',
+    `motionKit.tokens  // ${JSON.stringify(kit.tokens)}`,
+    "const tl = motionKit.timeline({ scrollTrigger: { trigger: '.hero', start: motionKit.DNA.scene.start } }); // defaults = ease e durata del DNA",
+    "tl.add(motionKit.from('.hero h1 .word', 'mask-slide'))                    // un preset come tween",
+    "  .add(motionKit.from('.hero img', 'scale-down-fade'), `<${motionKit.offset('heading', 'media')}`);",
+    '```',
+    '',
+    '- Easing ammessi: ' + kit.tokens.ease.all.map((e) => `\`${e}\``).join(', ') + ` (principale \`${kit.tokens.ease.primary}\`).`,
+    `- Durate tra ${kit.tokens.duration.short}s e ${kit.tokens.duration.long}s (base ${kit.tokens.duration.base}s); stagger ${kit.tokens.stagger}s; ritardo tra elementi ${kit.tokens.step}s.`,
+    '- Un solo momento firma per pagina, non di più: il resto lo fa il kit.',
+    '',
+    '## 8. Controllo finale',
     '',
     '- Apri la console: il kit stampa `[motion-kit]` con il numero di elementi animati e avvisa per preset inesistenti.',
     '- Ogni sezione importante ha `data-scene` (o `data-intro`), ogni titolo/testo/media principale ha il suo `data-motion` secondo il casting.',
@@ -385,5 +422,6 @@ export async function writeKit(outDir, data) {
   const kit = buildKit(data);
   await writeFile(path.join(outDir, 'motion-kit.js'), kitScript(kit));
   await writeFile(path.join(outDir, 'per-ia.md'), aiInstructions(kit, data));
+  await writeFile(path.join(outDir, 'kit.json'), JSON.stringify(kit, null, 2));
   return kit;
 }
