@@ -47,7 +47,7 @@ if (cmd === 'catalog') {
     process.exit(1);
   }
   const kit = JSON.parse(await readFile(kitPath, 'utf8'));
-  const fast = args.includes('--fast') ? { step: 600, pause: 1300, intro: 2500 } : {};
+  const fast = args.includes('--fast') ? { step: 600, pause: 1300, minPause: 700, settle: 650, intro: 2500 } : {};
   const r = await extract(url, { out: flag('--out', 'out-verify'), video: false, ...fast });
   const v = verify(kit, r);
   await writeFile(path.join(r.outDir, 'verifica.md'), verifyMarkdown(v, { url, kitPath }));

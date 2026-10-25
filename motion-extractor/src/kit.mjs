@@ -7,7 +7,7 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { revealType } from './choreography.mjs';
-import { propsFor, mergeScale } from './analyze.mjs';
+import { propsFor, mergeScale, gsapEase } from './analyze.mjs';
 
 const RUNTIME = readFileSync(fileURLToPath(new URL('./kit-runtime.js', import.meta.url)), 'utf8');
 const family = (ch) => ch.replace(/\d+$/, '');
@@ -45,9 +45,17 @@ function seg(a, f) {
 }
 
 function presetFrom(name, type, list, customEases) {
-  const dur = round(median(list.map((a) => a.duration)) / 1000);
+  // exact durations/eases (from the site's GSAP calls or CSS) win over the measured ones
+  const dur = round(median(list.map((a) => (a.ease && a.ease.exactDuration ? a.ease.exactDuration * 1000 : a.duration))) / 1000);
   const goodEases = list.filter((a) => a.ease && a.ease.best.err < 0.04).map((a) => a.ease.best.name);
   let ease = goodEases.length >= list.length / 2 ? mode(goodEases) : null;
+  if (ease) {
+    const g = gsapEase(ease);
+    if (g.path) {
+      customEases[`kit-${name}`] = g.path;
+      ease = `kit-${name}`;
+    } else ease = g.ease;
+  }
   if (!ease) {
     const sample = list.find((a) => a.ease);
     ease = sample ? `kit-${name}` : 'power2.out';
@@ -221,9 +229,14 @@ export function buildKit({ url, result, dna, scene, snippets, libs }) {
   }
 
   const lenisCode = snippets.map((s) => s.code).join('\n');
-  const lerp = lenisCode.match(/\blerp\s*:\s*(\d*\.?\d+)/);
-  const wheel = lenisCode.match(/\bwheelMultiplier\s*:\s*(\d*\.?\d+)/);
-  const usesLenis = !!(libs && (libs.lenisVersion || libs.lenisHtmlClass)) || !!lerp;
+  // Lenis options as written by the site: `new Lenis({ duration: 1.35, smoothWheel: true, … })`
+  const lenisOpts = {};
+  const ctor = lenisCode.match(/new\s+[\w$.]+\(\s*\{([^{}]*\b(?:lerp|smoothWheel|wheelMultiplier|syncTouch)\b[^{}]*)\}/);
+  for (const [, k, v] of (ctor ? ctor[1] : '').matchAll(/\b(lerp|duration|wheelMultiplier|touchMultiplier|smoothWheel|syncTouch|infinite)\s*:\s*(!0|!1|true|false|\d*\.?\d+)/g)) {
+    lenisOpts[k] = v === '!0' || v === 'true' ? true : v === '!1' || v === 'false' ? false : +v;
+  }
+  const usesLenis = !!(libs && (libs.lenisVersion || libs.lenisHtmlClass)) || Object.keys(lenisOpts).length > 0;
+  if (usesLenis && lenisOpts.lerp == null && lenisOpts.duration == null) lenisOpts.lerp = 0.1;
 
   const kit = {
     source: url,
@@ -242,7 +255,7 @@ export function buildKit({ url, result, dna, scene, snippets, libs }) {
     marquee: { speed: median(loopSpeeds) ?? 40 },
     cursor: dna.interactions.cursor.length ? { size: dna.interactions.cursor[0].w, duration: 0.4 } : null,
     hovers,
-    lenis: usesLenis ? { lerp: lerp ? +lerp[1] : 0.1, wheelMultiplier: wheel ? +wheel[1] : 1 } : null,
+    lenis: usesLenis ? lenisOpts : null,
   };
   kit.tokens = tokensOf(kit);
   return kit;

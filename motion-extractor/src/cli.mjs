@@ -22,7 +22,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--no-interaction') opts.interaction = false;
   else if (a === '--headed') opts.headed = true;
   else if (a === '--force') force = true;
-  else if (a === '--fast') Object.assign(opts, { step: 600, pause: 1300, intro: 2500 });
+  else if (a === '--fast') Object.assign(opts, { step: 600, pause: 1300, minPause: 700, settle: 650, intro: 2500 });
   else if (a === '--parallel') parallel = Math.max(1, Number(args[++i]) || 1);
   else if (a === '--file') {
     const list = (await readFile(args[++i], 'utf8')).split('\n').map((l) => l.trim());
@@ -86,4 +86,4 @@ async function worker() {
 }
 await Promise.all(Array.from({ length: Math.min(parallel, todo.length) }, worker));
 if (todo.length > 1) console.log(`${todo.length - failed}/${todo.length} siti in ${Math.round((Date.now() - started) / 1000)}s · riepilogo in ${indexFile}`);
-process.exit(failed ? 1 : 0);
+process.exitCode = failed ? 1 : 0;

@@ -2,7 +2,7 @@
 // and for every animated element: trigger, timing, easing, start/end values and keyframes.
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { propsFor, mergeScale, sameUnits, RAW } from './analyze.mjs';
+import { propsFor, mergeScale, sameUnits, RAW, gsapEase } from './analyze.mjs';
 
 const family = (ch) => ch.replace(/\d+$/, '');
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -119,8 +119,16 @@ function gsapLine(a, vh) {
   mergeScale(from);
   mergeScale(to);
   sameUnits(from, to, a.segs[0].before);
-  const ease = a.ease ? (a.ease.best.err < 0.04 ? a.ease.best.name : `CustomEase.create("misurata", "${a.ease.customEase}")`) : 'power2.out';
-  const vars = { ...to, duration: '§' + (Math.round(a.duration / 10) / 100), ease: ease.startsWith('CustomEase') ? '§' + ease : ease };
+  const g = a.ease ? gsapEase(a.ease.best.name) : null;
+  const ease = !a.ease
+    ? 'power2.out'
+    : g.path
+      ? `CustomEase.create("css", "${g.path}")`
+      : a.ease.best.err < 0.04
+        ? g.ease
+        : `CustomEase.create("misurata", "${a.ease.customEase}")`;
+  const seconds = a.ease && a.ease.exactDuration ? a.ease.exactDuration : Math.round(a.duration / 10) / 100;
+  const vars = { ...to, duration: '§' + seconds, ease: ease.startsWith('CustomEase') ? '§' + ease : ease };
   if (a.phase === 'intro') vars.delay = '§' + Math.round(a.start / 10) / 100;
   if (a.phase === 'scroll') {
     const st = sectionTrigger(a, vh) || { trigger: a.element.selector, start: a.triggerStart };
@@ -171,7 +179,9 @@ function animSpec(a, n, vh) {
   } else {
     L.push(`- **Quando**: ${when(a, vh)}${a.scene ? ` · scena ${a.scene.id}, parte a +${a.scene.offset}ms` : ''}`);
     L.push(`- **Durata**: ${Math.round(a.duration)}ms`);
-    if (a.ease) {
+    if (a.ease && a.ease.exact) {
+      L.push(`- **Easing**: \`${a.ease.best.name}\` — **esatto**, letto ${a.ease.exact === 'gsap' ? 'dalla chiamata GSAP del sito' : 'dal CSS del sito'} (durata dichiarata ${a.ease.exactDuration}s)`);
+    } else if (a.ease) {
       const e = a.ease.best;
       L.push(
         `- **Easing**: ${e.err < 0.04 ? `\`${e.name}\`` : `curva personalizzata (la più vicina è \`${e.name}\`)`} · scarto ${(e.err * 100).toFixed(1)}% · alternative ${a.ease.alternatives.map((x) => `\`${x.name}\``).join(', ')}`,

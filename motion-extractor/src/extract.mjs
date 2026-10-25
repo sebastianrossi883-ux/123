@@ -18,7 +18,9 @@ export const DEFAULTS = {
   out: 'out',
   maxScroll: 40000,
   step: 400,
-  pause: 2000,
+  pause: 2000, // max wait after a step; it stops earlier once nothing moves for `settle` ms
+  minPause: 900,
+  settle: 800, // ms without any motion that end a step early
   intro: 4000,
   width: 1440,
   height: 900,
@@ -118,17 +120,23 @@ async function extractWith(browser, url, o) {
   await page.mouse.move(o.width / 2, o.height / 2, { steps: 5 });
   await sleep(800);
 
+  // Whatever still moves now, with the page at rest, is a loop/ambient motion (marquee, floating
+  // shapes): ignored when deciding that a step has settled. Decided once, before scrolling, so a
+  // scrub still catching up after a step is never mistaken for it.
+  const ambient = await page.evaluate(() => window.__motionMovingIds(500));
   log('scroll a step (con rotella, così funziona anche con Lenis)…');
   await page.evaluate(() => window.__motionMark('scroll'));
   let scrolled = 0;
   let stuck = 0;
   let shot = 1;
-  // scrollY plus the position of the last elements: also moves on sites that scroll a transformed container.
+  // scrollY plus the position of a few elements picked once: also moves on sites that scroll a
+  // transformed container (Locomotive…). Picking them once keeps each step cheap on big pages.
+  await page.evaluate(() => {
+    const all = [...document.body.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().height > 0);
+    window.__motionProbeEls = [all[Math.floor(all.length / 2)], ...all.slice(-2)].filter(Boolean);
+  });
   const probe = () =>
-    page.evaluate(() => {
-      const els = [...document.body.querySelectorAll('*')].filter((e) => e.getBoundingClientRect().height > 0).slice(-3);
-      return [Math.round(window.scrollY), ...els.map((e) => Math.round(e.getBoundingClientRect().top))].join(',');
-    });
+    page.evaluate(() => [Math.round(window.scrollY), ...window.__motionProbeEls.map((e) => Math.round(e.getBoundingClientRect().top))].join(','));
   while (scrolled < o.maxScroll && stuck < 2) {
     const before = await probe();
     await page.evaluate((c) => window.__motionMark('step', c), scrolled + o.step);
@@ -136,7 +144,12 @@ async function extractWith(browser, url, o) {
       await page.mouse.wheel(0, 100);
       await sleep(30);
     }
-    await sleep(o.pause);
+    const waitStart = Date.now();
+    while (Date.now() - waitStart < o.pause) {
+      await sleep(100);
+      const quiet = await page.evaluate((ids) => window.__motionQuiet(ids), ambient);
+      if (Date.now() - waitStart >= o.minPause && quiet >= o.settle) break;
+    }
     const after = await probe();
     stuck = after === before ? stuck + 1 : 0;
     scrolled += o.step;

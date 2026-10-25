@@ -8,6 +8,7 @@ const EASE_NAMES = [
   ...['power1', 'power2', 'power3', 'power4', 'expo', 'circ', 'sine', 'back'].flatMap((e) => [
     `${e}.out`, `${e}.in`, `${e}.inOut`,
   ]),
+  'back.out(1.2)', 'back.out(2.5)', 'back.inOut(1.4)',
 ];
 const EASES = EASE_NAMES.map((name) => ({ name, fn: gsap.parseEase(name) }));
 
@@ -49,6 +50,68 @@ function parseRows(rows, scrollAt) {
 }
 
 // Scroll changes grouped into bursts (one burst ≈ one wheel step + smoothing).
+// The real ease/duration of an animation when we can know it: the GSAP call that targeted the
+// element (sites loading GSAP from a <script>) or the CSS transition/animation that moved it.
+function exactTimings(dump) {
+  const calls = new Map();
+  const tlDefaults = new Map();
+  for (const c of dump.calls || []) {
+    if (c.kind === 'gsap.timeline') tlDefaults.set(c.timeline, (c.vars && c.vars.defaults) || {});
+  }
+  for (const c of dump.calls || []) {
+    if (!/^(gsap|tl)\.(to|from|fromTo)$/.test(c.kind)) continue;
+    for (const id of c.ids || []) {
+      if (!calls.has(id)) calls.set(id, []);
+      calls.get(id).push(c);
+    }
+  }
+  const css = new Map();
+  for (const c of dump.cssAnimations || []) {
+    if (!c.targetId || !(c.duration > 0) || c.iterations === Infinity) continue;
+    if (!css.has(c.targetId)) css.set(c.targetId, []);
+    css.get(c.targetId).push(c);
+  }
+  return (id, start, measured) => {
+    const plausible = (d) => d > 0 && Math.abs(d * 1000 - measured) <= Math.max(120, d * 1000 * 0.35);
+    const g = (calls.get(id) || []).filter((c) => c.t <= start + 40);
+    for (let i = g.length - 1; i >= 0; i--) {
+      const c = g[i];
+      const v = c.toVars || c.vars || {};
+      if (v.scrollTrigger && v.scrollTrigger.scrub) continue;
+      const defs = c.timeline != null ? tlDefaults.get(c.timeline) || {} : {};
+      const duration = typeof v.duration === 'number' ? v.duration : typeof defs.duration === 'number' ? defs.duration : 0.5;
+      const ease = typeof v.ease === 'string' ? v.ease : typeof defs.ease === 'string' ? defs.ease : 'power1.out';
+      if (plausible(duration)) return { source: 'gsap', ease, duration };
+    }
+    const k = (css.get(id) || []).find((c) => Math.abs(c.start + (c.delay || 0) - start) < 150 && plausible(c.duration / 1000));
+    if (k) return { source: 'css', ease: k.easing, duration: k.duration / 1000 };
+    return null;
+  };
+}
+
+function withExact(fit, exact) {
+  if (!exact) return fit;
+  return {
+    best: { name: exact.ease, err: 0 },
+    alternatives: fit ? [fit.best, ...fit.alternatives].slice(0, 2) : [],
+    customEase: fit ? fit.customEase : null,
+    exact: exact.source,
+    exactDuration: exact.duration,
+  };
+}
+
+// CSS timing functions → something GSAP understands (a name, or a CustomEase path).
+const CSS_KEYWORDS = { ease: [0.25, 0.1, 0.25, 1], 'ease-in': [0.42, 0, 1, 1], 'ease-out': [0, 0, 0.58, 1], 'ease-in-out': [0.42, 0, 0.58, 1] };
+export function gsapEase(name) {
+  if (!name) return { ease: 'power2.out' };
+  if (name === 'linear') return { ease: 'none' };
+  const kw = CSS_KEYWORDS[name];
+  const m = name.match(/^cubic-bezier\(([^)]+)\)$/);
+  const p = kw || (m && m[1].split(',').map((v) => +v.trim()));
+  if (p) return { ease: null, path: `M0,0 C${p[0]},${p[1]} ${p[2]},${p[3]} 1,1`, css: name };
+  return { ease: name };
+}
+
 export function scrollBursts(scroll) {
   const bursts = [];
   // The first entry is the initial position, not a scroll.
@@ -105,10 +168,22 @@ function movingSteps(prows, ch, bursts) {
   return out;
 }
 
-function movesInStillTails(moves, tails) {
-  if (!tails.length) return 0;
-  const hit = tails.filter(([a, b]) => moves.some((m) => m.t >= a && m.t <= b)).length;
-  return hit / tails.length;
+// Share of the still moments (while the element was observed: it is only sampled near the viewport)
+// in which it moves as fast at the end as at the start: ~1 for loops. A scrub catching up with the
+// scroll also moves while the page is still, but it slows down to a stop.
+function movesInStillTails(moves, gaps) {
+  if (!moves.length) return 0;
+  const from = moves[0].t;
+  const to = moves[moves.length - 1].t;
+  const seen = gaps.filter(([a, b]) => a >= from - 50 && b <= to + 50);
+  if (seen.length < 2) return 0;
+  const sum = (a, b) => moves.reduce((acc, m) => (m.t >= a && m.t <= b ? acc + m.dv : acc), 0);
+  const steady = seen.filter(([a, b]) => {
+    const head = sum(a, a + 250);
+    const tail = sum(b - 250, b);
+    return tail > 0 && tail >= head * 0.5;
+  });
+  return steady.length / seen.length;
 }
 
 function scrollLinked(el, ch, segs, moves, bursts) {
@@ -238,14 +313,13 @@ export function analyze(dump) {
     for (const k of marks) if (k.t <= t) m = k;
     return m ? { phase: m.phase === 'settle' ? 'hover' : m.phase, info: m.info } : { phase: 'intro', info: null };
   };
-  // The last 300ms of every moment the page is really still (and of the intro): only loops move there.
+  // Moments the page scroll is really still (and the intro): loops keep moving at the same speed there.
   const stillTails = (virtualScroll
     ? bursts.map((b, i) => [i ? bursts[i - 1].tEnd : 0, b.tStart])
     : scroll.map(([t], i) => [i ? scroll[i - 1][0] : 0, t])
-  )
-    .filter(([from, to]) => to - from > 700)
-    .map(([, to]) => [to - 300, to]);
+  ).filter(([from, to]) => to - from > 600);
   const animations = [];
+  const exactFor = exactTimings(dump);
 
   for (const el of dump.tracked) {
     const prows = parseRows(el.rows, scrollAt);
@@ -297,7 +371,7 @@ export function analyze(dump) {
         triggerStart: `top ${pct(r0.top - (r0.ch.y || 0), r0.vh)}%`,
         scrollAtStart: r0.s,
         segs: g.segs,
-        ease: fitEase(main),
+        ease: withExact(fitEase(main), exactFor(el.id, g.start, duration)),
       });
     }
   }
@@ -381,6 +455,12 @@ export function recreate(result) {
   let customId = 1;
   const easeExpr = (fit) => {
     if (!fit) return 'power2.out';
+    const g = gsapEase(fit.best.name);
+    if (g.path) {
+      const name = `css-${customId++}`;
+      lines.push(`CustomEase.create(${JSON.stringify(name)}, ${JSON.stringify(g.path)}); // ${g.css} (dal CSS del sito)`);
+      return name;
+    }
     if (fit.best.err < 0.04) return fit.best.name;
     const name = `measured-${customId++}`;
     lines.push(`CustomEase.create(${JSON.stringify(name)}, ${JSON.stringify(fit.customEase)}); // più vicina: ${fit.best.name} (err ${fit.best.err})`);
@@ -424,7 +504,8 @@ export function recreate(result) {
     mergeScale(from);
     mergeScale(to);
     sameUnits(from, to, a.segs[0].before);
-    const vars = { ...to, duration: '__raw:' + round(a.duration / 1000, 2), ease: easeExpr(a.ease) };
+    const seconds = a.ease && a.ease.exactDuration ? a.ease.exactDuration : round(a.duration / 1000, 2);
+    const vars = { ...to, duration: '__raw:' + seconds, ease: easeExpr(a.ease) };
     if (a.stagger) vars.stagger = '__raw:' + a.stagger.each;
     if (a.onLoad) vars.delay = '__raw:' + round(a.start / 1000, 2);
     else vars.scrollTrigger = '__raw:' + js({ trigger: a.element.selector, start: a.triggerStart });

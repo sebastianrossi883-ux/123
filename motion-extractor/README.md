@@ -96,15 +96,16 @@ node src/cli.mjs --file urls.txt --parallel 4 --fast --no-video
 - `--parallel` al massimo pari ai core del computer meno uno: oltre, i fotogrammi rallentano e i tempi
   misurati peggiorano.
 
-Tempi misurati su una pagina di 9,7 schermate (computer a 4 core):
+Tempi misurati su due siti reali (copie locali, computer a 4 core):
 
-| modalità | per sito | 500 siti |
-|---|---|---|
-| normale | 56s | ~8–10 ore |
-| `--fast --no-video` | 33s | ~5 ore |
-| `--fast --no-video --parallel 4` | 33–35s ciascuno, 4 insieme | **~1,5–2 ore** |
+| sito | lunghezza | normale | `--fast --no-video` |
+|---|---|---|---|
+| tomdekoning.work (Webflow, GSAP, Locomotive/Lenis) | 5 schermate | 47s | 35s |
+| hyperspeed.agency (GSAP, Lenis `duration 1.35`, scrub 1.25) | 23 schermate | 221s | 137s |
 
-Un sito più lungo ci mette di più (≈5s per schermata in modalità normale, ≈2,2s in `--fast`).
+Circa **6s per schermata in `--fast`** e **10s in modalità normale**, più il caricamento del sito.
+Per 500 siti di 8–15 schermate: **~3 ore** con `--fast --no-video --parallel 4`, ~4–5 ore in normale.
+
 In `--fast` coreografia, easing, durate, stagger, pin e parallax restano precisi; lo **scrub** invece
 viene sottostimato (non c'è tempo di aspettare che l'elemento raggiunga lo scroll): per i siti che
 vuoi replicare davvero, rilanciali senza `--fast`.

@@ -6,7 +6,7 @@
   if (window.top !== window || window.__motion) return;
 
   const MAX_TRACKED = 400;
-  const MAX_CALLS = 1000;
+  const MAX_CALLS = 3000;
   const t0 = performance.now();
   const now = () => Math.round(performance.now() - t0);
 
@@ -70,6 +70,23 @@
     return String(v);
   }
 
+  // Only elements near the viewport (one screen above/below) are sampled: on heavy pages sampling
+  // everything every frame slows the page down, and motion far off screen is not seen anyway.
+  // Checked with the element's own rect every 250ms (an IntersectionObserver would call "hidden"
+  // the text that sits inside an overflow:hidden mask, i.e. exactly what mask reveals animate).
+  const near = new WeakSet();
+  let lastNearCheck = -1e9;
+  function updateNear(t) {
+    if (t - lastNearCheck < 250) return;
+    lastNearCheck = t;
+    const vh = innerHeight;
+    for (const it of S.tracked) {
+      const r = it.el.getBoundingClientRect();
+      if (r.bottom > -vh && r.top < vh * 2) near.add(it.el);
+      else near.delete(it.el);
+    }
+  }
+
   // ---- 1. Which elements are being animated (inline style mutations) ----
   function track(el) {
     if (el.__motionId || S.tracked.length >= MAX_TRACKED) return;
@@ -85,6 +102,7 @@
       rows: [],
       last: '',
     });
+    near.add(el);
   }
   new MutationObserver((ms) => {
     for (const m of ms) if (m.target.nodeType === 1) track(m.target);
@@ -102,14 +120,15 @@
       lastScroll = sy;
     }
     const vh = window.innerHeight;
+    updateNear(t);
     for (const it of S.tracked) {
-      if (!it.el.isConnected) continue;
+      if (!it.el.isConnected || (!near.has(it.el) && it.rows.length)) continue;
       const cs = getComputedStyle(it.el);
       const key = [cs.transform, cs.opacity, cs.clipPath, cs.filter, cs.width, cs.height, cs.backgroundColor, cs.color, cs.borderRadius, cs.strokeDashoffset, cs.letterSpacing].join('|');
       if (key === it.last) continue;
       it.last = key;
+      it.lastChange = t;
       const r = it.el.getBoundingClientRect();
-      // [time, scrollY, transform, opacity, clipPath, filter, rectTop, rectHeight, viewportH]
       // [time, scrollY, transform, opacity, clipPath, filter, rectTop, rectHeight, viewportH,
       //  width, height, backgroundColor, color, borderRadius, strokeDashoffset, letterSpacing]
       it.rows.push([t, sy, cs.transform, +cs.opacity, cs.clipPath, cs.filter, Math.round(r.top), Math.round(r.height), vh,
@@ -118,22 +137,27 @@
     if (t - lastCssScan > 250 && document.getAnimations) {
       lastCssScan = t;
       for (const a of document.getAnimations()) {
-        if (seenAnims.has(a) || S.cssAnimations.length > 300) continue;
+        if (seenAnims.has(a) || S.cssAnimations.length > 1500) continue;
         seenAnims.add(a);
         // CSS animations/transitions (e.g. triggered by an `.is-visible` class) get sampled too.
         if (a.effect && a.effect.target instanceof Element) track(a.effect.target);
         try {
           const timing = a.effect && a.effect.getTiming ? a.effect.getTiming() : {};
+          const frames = a.effect && a.effect.getKeyframes ? a.effect.getKeyframes() : [];
           S.cssAnimations.push({
             t,
+            // when it really started (the scan runs every 250ms), in the same clock as the samples
+            start: a.startTime != null ? Math.round(a.startTime - t0) : t,
+            targetId: a.effect && a.effect.target ? a.effect.target.__motionId || null : null,
             kind: a.constructor && a.constructor.name, // CSSAnimation / CSSTransition / Animation
             name: a.animationName || a.transitionProperty || a.id || '',
             target: a.effect && a.effect.target ? cssPath(a.effect.target) : null,
             duration: timing.duration,
             delay: timing.delay,
-            easing: timing.easing,
+            // CSS @keyframes carry their timing function on the keyframes, transitions on the timing
+            easing: timing.easing && timing.easing !== 'linear' ? timing.easing : (frames[0] && frames[0].easing) || 'linear',
             iterations: timing.iterations,
-            keyframes: a.effect && a.effect.getKeyframes ? ser(a.effect.getKeyframes()) : null,
+            keyframes: S.cssAnimations.length < 300 ? ser(frames) : null,
             scrollDriven: !!(a.timeline && a.timeline.constructor && /Scroll|View/.test(a.timeline.constructor.name)),
           });
         } catch (e) {}
@@ -155,9 +179,19 @@
   };
 
   // ---- 4. GSAP global hook (works when GSAP is loaded via <script>/CDN) ----
+  function targetIds(targets) {
+    try {
+      const g = window.gsap;
+      const els = g && g.utils ? g.utils.toArray(targets) : [];
+      return els.filter((e) => e instanceof Element).slice(0, 60).map((e) => (track(e), e.__motionId || null)).filter(Boolean);
+    } catch (e) {
+      return [];
+    }
+  }
   function record(kind, owner, targets, a, b, pos) {
     if (S.calls.length >= MAX_CALLS) return;
     S.calls.push({
+      ids: targets == null ? [] : targetIds(targets),
       t: now(),
       scroll: Math.round(window.scrollY),
       kind,
@@ -357,6 +391,24 @@
 
   const headingText = (h) => (h ? (h.innerText || h.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60) : '');
 
+  // How long a pinned element stays pinned, in vh of scroll.
+  function pinLengthVh(sp) {
+    const vh = innerHeight;
+    const child = sp.firstElementChild || sp;
+    const g = window.gsap;
+    const ST = window.ScrollTrigger || (g && g.core && g.core.globals && g.core.globals().ScrollTrigger);
+    if (ST && ST.getAll) {
+      const st = ST.getAll().find((x) => x.pin === child || x.pin === sp);
+      if (st && st.end > st.start) return Math.round(((st.end - st.start) / vh) * 100);
+    }
+    const diff = sp.getBoundingClientRect().height - child.getBoundingClientRect().height;
+    if (diff > 5) return Math.round((diff / vh) * 100);
+    // pinSpacing: false → pinned while its (taller) container scrolls past
+    const parent = sp.parentElement;
+    const extra = parent ? parent.getBoundingClientRect().height - child.getBoundingClientRect().height : 0;
+    return Math.max(0, Math.round((extra / vh) * 100));
+  }
+
   function scenography() {
     const vw = innerWidth;
     const vh = innerHeight;
@@ -441,7 +493,7 @@
           selector: cssPath(sec),
           top: Math.round(r.top + scrollY),
           heightVh: Math.round((r.height / vh) * 100),
-          pinnedForVh: spacer ? Math.round(((spacer.getBoundingClientRect().height - r.height) / vh) * 100) : 0,
+          pinnedForVh: spacer ? pinLengthVh(spacer) : 0,
           bg: effectiveBg(sec),
           color: hex(cs.color),
           display: cs.display,
@@ -491,12 +543,25 @@
         customCursor: cursorNone,
         pinSpacers: [...document.querySelectorAll('.pin-spacer')].map((sp) => ({
           selector: cssPath(sp.firstElementChild || sp),
-          pinnedForVh: Math.round(((sp.getBoundingClientRect().height - (sp.firstElementChild || sp).getBoundingClientRect().height) / vh) * 100),
+          pinnedForVh: pinLengthVh(sp),
         })),
       },
     };
   }
   window.__motionScene = scenography;
+
+  // For adaptive pauses: ids moving right now (loops, ambient motion) and how long the rest has been still.
+  window.__motionMovingIds = (withinMs) => {
+    const t = now();
+    return S.tracked.filter((it) => it.lastChange && t - it.lastChange < withinMs).map((it) => it.id);
+  };
+  window.__motionQuiet = (ignore) => {
+    const t = now();
+    const skip = new Set(ignore || []);
+    let last = S.scroll.length ? S.scroll[S.scroll.length - 1][0] : 0;
+    for (const it of S.tracked) if (!skip.has(it.id) && it.lastChange > last) last = it.lastChange;
+    return t - last;
+  };
 
   // Start sampling an element (and its children) before the extractor hovers it.
   window.__motionTrack = (selector) => {
