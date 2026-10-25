@@ -156,7 +156,7 @@
             delay: timing.delay,
             // CSS @keyframes carry their timing function on the keyframes, transitions on the timing
             easing: timing.easing && timing.easing !== 'linear' ? timing.easing : (frames[0] && frames[0].easing) || 'linear',
-            iterations: timing.iterations,
+            iterations: timing.iterations === Infinity ? 'Infinity' : timing.iterations, // JSON has no Infinity
             keyframes: S.cssAnimations.length < 300 ? ser(frames) : null,
             scrollDriven: !!(a.timeline && a.timeline.constructor && /Scroll|View/.test(a.timeline.constructor.name)),
           });
@@ -573,22 +573,29 @@
   window.__motionTrack = (selector) => {
     try {
       const el = document.querySelector(selector);
-      if (el) [el, ...el.querySelectorAll('*')].slice(0, 12).forEach(track);
+      // up to 60 descendants: a link split in letters animates each letter on hover
+      if (el) [el, ...el.querySelectorAll('*')].slice(0, 60).forEach(track);
     } catch (e) {}
   };
 
   // Interactive elements visible in the first viewport, for the hover test.
-  window.__motionHoverTargets = (max) =>
-    [...document.querySelectorAll('a, button, [role="button"]')]
-      .filter((el) => {
-        const r = el.getBoundingClientRect();
-        return r.width > 20 && r.height > 12 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
-      })
-      .slice(0, max)
-      .map((el) => {
-        const r = el.getBoundingClientRect();
-        return { selector: cssPath(el), x: r.left + r.width / 2, y: r.top + r.height / 2, text: (el.textContent || '').trim().slice(0, 30) };
-      });
+  // One element per "kind" (tag + classes + data-attributes): ten identical links behave the same.
+  const hoverKind = (el) =>
+    [el.tagName, ...[...el.classList].sort(), ...[...el.attributes].map((a) => a.name).filter((n) => n.startsWith('data-')).sort()].join('.');
+  window.__motionHoverTargets = (max, skipKinds) => {
+    const skip = new Set(skipKinds || []);
+    const out = [];
+    for (const el of document.querySelectorAll('a, button, [role="button"], [data-hover], [class*="hover"], [class*="magnetic"]')) {
+      if (out.length >= max) break;
+      const r = el.getBoundingClientRect();
+      if (!(r.width > 20 && r.height > 12 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth)) continue;
+      const kind = hoverKind(el);
+      if (skip.has(kind)) continue;
+      skip.add(kind);
+      out.push({ selector: cssPath(el), kind, x: r.left + r.width / 2, y: r.top + r.height / 2, text: (el.textContent || '').trim().slice(0, 30) });
+    }
+    return out;
+  };
 
   // ---- 7. Final dump, called by the extractor after scrolling ----
   function describeAnim(a) {

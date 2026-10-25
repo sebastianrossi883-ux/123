@@ -277,7 +277,7 @@ export async function writeBlend(outDir, { kit, fingerprint: fp, parents, neares
 
 // ---------- verify ----------
 export function verify(kit, { result, dna }) {
-  const time = result.animations.filter((a) => a.kind === 'time' && (a.phase === 'intro' || a.phase === 'scroll'));
+  const time = result.animations.filter((a) => a.kind === 'time' && !a.scrubbed && (a.phase === 'intro' || a.phase === 'scroll'));
   const presets = Object.entries(kit.presets);
   const checks = [];
   const groupsSeen = new Set();

@@ -92,7 +92,7 @@ export function briefText({ url, title, scene, dna }) {
     L.push('## Interazioni', '');
     for (const c of inter.cursor) L.push(`- Cursore: \`${c.selector}\` ${c.w}×${c.h}px`);
     for (const m of inter.mouseParallax) L.push(`- Reagisce al mouse: \`${m.selector}\` (${m.props})`);
-    for (const h of inter.hover) L.push(`- Hover su \`${h.target}\`: ${h.effects.map((e) => `${e.props} ${e.duration}ms ${e.ease || ''}`).join('; ')}`);
+    for (const h of inter.hover) L.push(`- Hover su \`${h.target}\`: ${h.effects.map((e) => `${e.props}${e.count > 1 ? ` ×${e.count} (stagger ${e.stagger}s)` : ''} ${e.duration}ms ${e.ease || ''}`).join('; ')}`);
     L.push('');
   }
 

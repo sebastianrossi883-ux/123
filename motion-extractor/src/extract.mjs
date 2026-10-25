@@ -98,6 +98,7 @@ async function extractWith(browser, url, o) {
   if (consent) log(`banner cookie chiuso ("${consent}")`);
   await page.screenshot({ path: path.join(outDir, 'screens', '000-top.png') });
 
+  const hoveredKinds = [];
   if (o.interaction) {
     log('test mouse (cursore, parallax al mouse) e hover…');
     await page.evaluate(() => window.__motionMark('mouse'));
@@ -107,14 +108,8 @@ async function extractWith(browser, url, o) {
       await sleep(25);
     }
     await sleep(800);
-    const targets = await page.evaluate((n) => window.__motionHoverTargets(n), o.hoverTargets);
-    for (const h of targets) {
-      await page.evaluate((sel) => window.__motionTrack(sel), h.selector);
-      await sleep(80);
-      await page.evaluate((sel) => window.__motionMark('hover', sel), h.selector);
-      await page.mouse.move(h.x, h.y, { steps: 5 });
-      await sleep(700);
-    }
+    const targets = await page.evaluate(([n, skip]) => window.__motionHoverTargets(n, skip), [o.hoverTargets, hoveredKinds]);
+    await hoverAll(page, targets, hoveredKinds);
   }
   await page.evaluate(() => window.__motionMark('settle'));
   await page.mouse.move(o.width / 2, o.height / 2, { steps: 5 });
@@ -142,6 +137,7 @@ async function extractWith(browser, url, o) {
   // back to `step` as soon as something animates, so empty parts of a page cost little time.
   let stepSize = o.step;
   let emptySteps = 0;
+  let stepIndex = 0;
   while (scrolled < o.maxScroll && stuck < 2) {
     const before = await probe();
     const stepStart = await page.evaluate(() => window.__motionNow());
@@ -164,6 +160,16 @@ async function extractWith(browser, url, o) {
     scrolled += stepSize;
     emptySteps = active ? 0 : emptySteps + 1;
     stepSize = active ? o.step : Math.min(o.step * (1 + emptySteps), Math.round(o.height * 1.5));
+    // Hover also further down the page (footer links, cards…): two new kinds every three steps.
+    if (o.interaction && stepIndex++ % 3 === 2) {
+      const more = await page.evaluate(([skip]) => window.__motionHoverTargets(2, skip), [hoveredKinds]);
+      if (more.length) {
+        await hoverAll(page, more, hoveredKinds);
+        await page.mouse.move(o.width / 2, o.height / 2, { steps: 4 });
+        await sleep(400);
+        await page.evaluate(() => window.__motionMark('scroll'));
+      }
+    }
     if (Math.floor(scrolled / o.height) >= shot) {
       await page.screenshot({ path: path.join(outDir, 'screens', `${String(shot).padStart(3, '0')}-scroll-${scrolled}.png`) });
       shot++;
@@ -231,6 +237,17 @@ async function extractWith(browser, url, o) {
   const seconds = Math.round((Date.now() - started) / 1000);
   log(`fatto in ${seconds}s → ${path.join(outDir, 'spec.md')}`);
   return { seconds, kit, outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
+}
+
+async function hoverAll(page, targets, hoveredKinds) {
+  for (const h of targets) {
+    hoveredKinds.push(h.kind);
+    await page.evaluate((sel) => window.__motionTrack(sel), h.selector);
+    await sleep(80);
+    await page.evaluate((sel) => window.__motionMark('hover', sel), h.selector);
+    await page.mouse.move(h.x, h.y, { steps: 5 });
+    await sleep(700);
+  }
 }
 
 // Cookie/consent banners cover the page or block the scroll: click their accept button.

@@ -14,6 +14,11 @@ const tally = (items) => {
   return [...m].sort((a, b) => b[1] - a[1]).map(([name, count]) => ({ name, count, share: round(count / total) }));
 };
 
+const dedupe = (list, key) => {
+  const seen = new Set();
+  return list.filter((x) => (seen.has(key(x)) ? false : seen.add(key(x))));
+};
+
 export function revealType(a) {
   const seg = (f) => a.segs.find((s) => family(s.ch) === f);
   const has = (f) => !!seg(f);
@@ -165,9 +170,23 @@ function interactions(anims, dump) {
     if (!hovers.has(target)) hovers.set(target, []);
     hovers.get(target).push(what);
   };
+  const seenGroups = new Set();
   for (const a of hover) {
     if (!a.hoverTarget || byEl.has(a.element.selector)) continue;
-    add(a.hoverTarget, { element: a.element.selector, props: propsSummary(a), duration: Math.round(a.duration), ease: a.ease && a.ease.best.name, via: 'js' });
+    // letters of a split link rolling on hover: one effect "×N, stagger …" instead of N lines
+    if (a.stagger) {
+      if (seenGroups.has(a.stagger.group)) continue;
+      seenGroups.add(a.stagger.group);
+    }
+    add(a.hoverTarget, {
+      element: a.element.selector,
+      props: propsSummary(a),
+      duration: Math.round(a.ease && a.ease.exactDuration ? a.ease.exactDuration * 1000 : a.duration),
+      ease: a.ease && a.ease.best.name,
+      via: a.ease && a.ease.exact === 'css' ? 'css' : 'js',
+      count: a.stagger ? a.stagger.size : 1,
+      stagger: a.stagger ? a.stagger.each : null,
+    });
   }
   for (const c of dump.cssAnimations || []) {
     const w = hoverWindows.find((h) => c.t >= h.from && c.t < h.to);
@@ -179,8 +198,9 @@ function interactions(anims, dump) {
 export function choreography(result, dump, scene) {
   const vh = dump.viewport.h;
   const anims = result.animations;
-  const time = anims.filter((a) => a.kind === 'time' && (a.phase === 'intro' || a.phase === 'scroll'));
+  const time = anims.filter((a) => a.kind === 'time' && !a.scrubbed && (a.phase === 'intro' || a.phase === 'scroll'));
   const scroll = anims.filter((a) => a.kind === 'scroll');
+  const scrubbedPieces = anims.filter((a) => a.scrubbed).length;
   const loops = anims.filter((a) => a.kind === 'loop');
   const scenes = buildScenes(time);
   const { layers, effects } = scrollLayers(scroll, vh);
@@ -207,11 +227,11 @@ export function choreography(result, dump, scene) {
     roleOrders: tally(scenes.filter((s) => s.beats.length > 1).map((s) => s.roleOrder)).slice(0, 4),
     overlapMedian: median(scenes.filter((s) => s.beats.length > 1).map((s) => s.overlap)),
     beatOffsetMedianMs: median(scenes.map((s) => s.medianOffsetMs).filter((x) => x != null)),
-    scrollLinkedShare: round(scroll.length / Math.max(1, scroll.length + time.length)),
+    scrollLinkedShare: round((scroll.length + scrubbedPieces) / Math.max(1, scroll.length + scrubbedPieces + time.length)),
     scrubMedian: median(scroll.map((a) => (a.scrub === true ? 0 : a.scrub))),
     parallaxLayers: layers.length,
     pinnedVh: pins.reduce((acc, p) => acc + p.pinnedForVh, 0),
-    loops: loops.length,
+    loops: loops.length + new Set((dump.cssAnimations || []).filter((c) => c.iterations === 'Infinity').map((c) => c.target + c.name)).size,
     pageVh: Math.round((dump.docHeight / vh) * 100),
     scenesPerScreen: round(scenes.length / (dump.docHeight / vh)),
   };
@@ -221,7 +241,18 @@ export function choreography(result, dump, scene) {
     layers,
     scrollEffects: effects,
     pins,
-    loops: loops.map((l) => ({ selector: l.element.selector, property: l.ch, speedPerSecond: l.speedPerSecond })),
+    loops: [
+      ...loops
+        .filter((l) => !(dump.cssAnimations || []).some((c) => c.iterations === 'Infinity' && c.target === l.element.selector))
+        .map((l) => ({ selector: l.element.selector, property: l.ch, speedPerSecond: l.speedPerSecond, source: 'misurato' })),
+      // infinite CSS animations are loops by definition: exact duration and curve, no guessing
+      ...dedupe(
+        (dump.cssAnimations || [])
+          .filter((c) => c.iterations === 'Infinity')
+          .map((c) => ({ selector: c.target, property: `@keyframes ${c.name}`, durationMs: c.duration, easing: c.easing, source: 'css' })),
+        (l) => l.selector + l.property,
+      ),
+    ],
     interactions: interactions(anims, dump),
   };
 }

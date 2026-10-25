@@ -218,7 +218,7 @@ ${dna.pins.length ? `<table style="margin-top:16px"><tr><th>Sezione pinnata</th>
   <div class="card"><h4>Hover</h4>${dna.interactions.hover.map((h) => `<p><code>${esc(h.target)}</code><br>${h.effects.map((e) => `${esc(e.props)} · ${e.duration}ms · ${esc(e.ease || '')} (${e.via})`).join('<br>')}</p>`).join('') || '<p class="muted">Nessun effetto hover registrato.</p>'}</div>
 </div>
 
-${dna.loops.length ? `<h2>Loop</h2><div class="card">${dna.loops.map((l) => `<p><code>${esc(l.selector)}</code> · ${l.property} ${l.speedPerSecond}/s</p>`).join('')}</div>` : ''}
+${dna.loops.length ? `<h2>Loop</h2><div class="card">${dna.loops.map((l) => `<p><code>${esc(l.selector)}</code> · ${esc(l.property)} ${l.source === 'css' ? `${l.durationMs}ms ${esc(l.easing)} (CSS, infinito)` : `${l.speedPerSecond}/s`}</p>`).join('')}</div>` : ''}
 
 <h2>Schermate</h2>
 <div class="shots">${shots.map((s) => `<img src="screens/${esc(s)}" alt="${esc(s)}" loading="lazy">`).join('')}</div>

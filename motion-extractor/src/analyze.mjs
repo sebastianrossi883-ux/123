@@ -55,8 +55,11 @@ function parseRows(rows, scrollAt) {
 function exactTimings(dump) {
   const calls = new Map();
   const tlDefaults = new Map();
+  const tlScrub = new Set();
   for (const c of dump.calls || []) {
-    if (c.kind === 'gsap.timeline') tlDefaults.set(c.timeline, (c.vars && c.vars.defaults) || {});
+    if (c.kind !== 'gsap.timeline') continue;
+    tlDefaults.set(c.timeline, (c.vars && c.vars.defaults) || {});
+    if (c.vars && c.vars.scrollTrigger && c.vars.scrollTrigger.scrub) tlScrub.add(c.timeline);
   }
   for (const c of dump.calls || []) {
     if (!/^(gsap|tl)\.(to|from|fromTo)$/.test(c.kind)) continue;
@@ -67,13 +70,19 @@ function exactTimings(dump) {
   }
   const css = new Map();
   for (const c of dump.cssAnimations || []) {
-    if (!c.targetId || !(c.duration > 0) || c.iterations === Infinity) continue;
+    if (!c.targetId || !(c.duration > 0) || c.iterations === 'Infinity') continue;
     if (!css.has(c.targetId)) css.set(c.targetId, []);
     css.get(c.targetId).push(c);
   }
   return (id, start, measured) => {
     const plausible = (d) => d > 0 && Math.abs(d * 1000 - measured) <= Math.max(120, d * 1000 * 0.35);
     const g = (calls.get(id) || []).filter((c) => c.t <= start + 40);
+    const latest = g[g.length - 1];
+    if (latest) {
+      const v = latest.toVars || latest.vars || {};
+      // a piece of a scrubbed timeline moving in jerks while scrolling: not an entrance
+      if ((latest.timeline != null && tlScrub.has(latest.timeline)) || (v.scrollTrigger && v.scrollTrigger.scrub)) return { scrubbed: true };
+    }
     for (let i = g.length - 1; i >= 0; i--) {
       const c = g[i];
       const v = c.toVars || c.vars || {};
@@ -81,7 +90,9 @@ function exactTimings(dump) {
       const defs = c.timeline != null ? tlDefaults.get(c.timeline) || {} : {};
       const duration = typeof v.duration === 'number' ? v.duration : typeof defs.duration === 'number' ? defs.duration : 0.5;
       const ease = typeof v.ease === 'string' ? v.ease : typeof defs.ease === 'string' ? defs.ease : 'power1.out';
-      if (plausible(duration)) return { source: 'gsap', ease, duration };
+      const st = v.stagger ?? defs.stagger;
+      const stagger = typeof st === 'number' ? st : st && typeof st.each === 'number' ? st.each : null;
+      if (plausible(duration)) return { source: 'gsap', ease, duration, stagger };
     }
     const k = (css.get(id) || []).find((c) => Math.abs(c.start + (c.delay || 0) - start) < 150 && plausible(c.duration / 1000));
     if (k) return { source: 'css', ease: k.easing, duration: k.duration / 1000 };
@@ -97,6 +108,7 @@ function withExact(fit, exact) {
     customEase: fit ? fit.customEase : null,
     exact: exact.source,
     exactDuration: exact.duration,
+    exactStagger: exact.stagger ?? null,
   };
 }
 
@@ -176,12 +188,15 @@ function movesInStillTails(moves, gaps) {
   const from = moves[0].t;
   const to = moves[moves.length - 1].t;
   const seen = gaps.filter(([a, b]) => a >= from - 50 && b <= to + 50);
-  if (seen.length < 2) return 0;
+  // one still moment is enough evidence only if it is long (≥1.5s): nothing driven by scroll lasts that
+  if (seen.length < 2 && !(seen.length === 1 && seen[0][1] - seen[0][0] >= 1500)) return 0;
   const sum = (a, b) => moves.reduce((acc, m) => (m.t >= a && m.t <= b ? acc + m.dv : acc), 0);
   const steady = seen.filter(([a, b]) => {
     const head = sum(a, a + 250);
     const tail = sum(b - 250, b);
-    return tail > 0 && tail >= head * 0.5;
+    // still moving at the end of a long still moment (a scrub has caught up by then), or as fast
+    // at the end as at the start
+    return tail > 0 && (b - a >= 1500 || tail >= head * 0.5);
   });
   return steady.length / seen.length;
 }
@@ -370,6 +385,15 @@ export function analyze(dump) {
       const duration = Math.max(...g.segs.map((s) => s.end - s.start));
       // Instant jumps are gsap.set / immediateRender of .from() / pin offsets, not animations.
       if (duration < 60) continue;
+      // Seconds of constant-speed motion with no end in sight = a marquee/loop, not an entrance.
+      const linear = g.segs.find((s) => ['x', 'y', 'rotate'].includes(s.ch));
+      if (linear && duration > 4000) {
+        const fit = fitEase(linear);
+        if (fit && fit.best.name === 'none' && fit.best.err < 0.03) {
+          animations.push({ kind: 'loop', element: el, ch: linear.ch, speedPerSecond: round(((linear.to - linear.from) / (linear.end - linear.start)) * 1000, 2) });
+          continue;
+        }
+      }
       const r0 = main.rows[0];
       const { phase, info } = phaseAt(g.start);
       animations.push({
@@ -380,12 +404,22 @@ export function analyze(dump) {
         triggerStart: `top ${pct(r0.top - (r0.ch.y || 0), r0.vh)}%`,
         scrollAtStart: r0.s,
         segs: g.segs,
-        ease: withExact(fitEase(main), exactFor(el.id, g.start, duration)),
+        ...(() => {
+          const ex = exactFor(el.id, g.start, duration);
+          return ex && ex.scrubbed ? { scrubbed: true, ease: fitEase(main) } : { ease: withExact(fitEase(main), ex) };
+        })(),
       });
     }
   }
 
   detectStagger(animations.filter((a) => a.kind === 'time'));
+  // the site's own stagger value, when its GSAP call says it, replaces the measured one
+  const groups = new Map();
+  for (const a of animations) if (a.stagger) (groups.get(a.stagger.group) || groups.set(a.stagger.group, []).get(a.stagger.group)).push(a);
+  for (const list of groups.values()) {
+    const exact = list.map((a) => a.ease && a.ease.exactStagger).find((v) => v > 0);
+    if (exact) list.forEach((a) => Object.assign(a.stagger, { each: exact, measured: a.stagger.each }));
+  }
   return { bursts: bursts.length, virtualScroll, animations };
 }
 

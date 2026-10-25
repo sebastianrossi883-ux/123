@@ -177,6 +177,7 @@ function animSpec(a, n, vh) {
       ...a.samples.map((s) => `| ${s.scroll}px | ${md(isRaw ? s[f] : fmt(a.ch, s.value))} |`),
     );
   } else {
+    if (a.scrubbed) L.push('- **Nota**: è un pezzo di una **timeline legata allo scroll (scrub)** del sito: si muove a strappi mentre scorri, i tempi qui sotto dipendono dalla velocità dello scroll, non sono un easing da copiare');
     L.push(`- **Quando**: ${when(a, vh)}${a.scene ? ` · scena ${a.scene.id}, parte a +${a.scene.offset}ms` : ''}`);
     L.push(`- **Durata**: ${Math.round(a.duration)}ms`);
     if (a.ease && a.ease.exact) {

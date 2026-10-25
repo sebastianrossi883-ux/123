@@ -113,7 +113,7 @@ const CSS_EASES = { ease: 'M0,0 C0.25,0.1 0.25,1 1,1', 'ease-in': 'M0,0 C0.42,0 
 
 export function buildKit({ url, result, dna, scene, snippets, libs }) {
   const anims = result.animations;
-  const time = anims.filter((a) => a.kind === 'time' && (a.phase === 'intro' || a.phase === 'scroll'));
+  const time = anims.filter((a) => a.kind === 'time' && !a.scrubbed && (a.phase === 'intro' || a.phase === 'scroll'));
   const customEases = {};
 
   // 1. Presets. Animations are grouped by reveal type and variant (role, or "chars" for text
@@ -225,7 +225,12 @@ export function buildKit({ url, result, dna, scene, snippets, libs }) {
       ease = `kit-hover-${hovers.length + 1}`;
       customEases[ease] = pathCss;
     }
-    hovers.push({ name: `hover-${hovers.length + 1}`, to, duration: round((css ? css.duration : enter.duration) / 1000), ease, source: h.target });
+    // letters rolling on hover (a staggered group of children): the kit can't tag that, the AI writes it
+    const letters = h.effects.find((e) => e.count > 1 && e.stagger);
+    hovers.push({
+      name: `hover-${hovers.length + 1}`, to, duration: round((css ? css.duration : enter.duration) / 1000), ease, source: h.target,
+      letters: letters ? { count: letters.count, stagger: letters.stagger, duration: round(letters.duration / 1000), ease: letters.ease, props: letters.props } : null,
+    });
   }
 
   const lenisCode = snippets.map((s) => s.code).join('\n');
@@ -382,6 +387,9 @@ export function aiInstructions(kit, { title, url }) {
     `- **Marquee**: \`data-marquee\` su una riga con il testo ripetuto 2 volte dentro → scorre a ${kit.marquee.speed}px/s.`,
     kit.cursor ? `- **Cursore**: aggiungi \`<div data-cursor></div>\` in fondo al body: cerchio di ${kit.cursor.size}px che segue il mouse.` : '',
     ...kit.hovers.map((h) => `- **Hover**: \`data-hover="${h.name}"\` sui bottoni → \`${JSON.stringify(h.to)}\` in ${h.duration}s (misurato su \`${h.source}\`).`),
+    ...kit.hovers
+      .filter((h) => h.letters)
+      .map((h) => `- **Hover a lettere** (da scrivere come momento firma con SplitText): su \`${h.source}\` ${h.letters.count} lettere, ${h.letters.props}, ${h.letters.duration}s, \`${h.letters.ease}\`, stagger ${h.letters.stagger}s. Ricetta: dividi il testo in \`chars\` (due copie sovrapposte), al \`mouseenter\` la prima esce e la seconda entra con questi valori, al \`mouseleave\` \`reverse()\`.`),
     '',
     '## 6. Esempio',
     '',
