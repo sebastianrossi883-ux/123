@@ -15,6 +15,7 @@ const args = process.argv.slice(2);
 const opts = {};
 let parallel = 1;
 let force = false;
+let shard = null; // [i, n]: this machine does sites i, i+n, i+2n… (for many machines at once)
 const urls = [];
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -22,6 +23,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--no-interaction') opts.interaction = false;
   else if (a === '--headed') opts.headed = true;
   else if (a === '--force') force = true;
+  else if (a === '--shard') shard = String(args[++i]).split('/').map(Number);
   else if (a === '--fast') Object.assign(opts, { step: 600, pause: 1300, minPause: 700, settle: 650, intro: 2500 });
   else if (a === '--parallel') parallel = Math.max(1, Number(args[++i]) || 1);
   else if (a === '--file') {
@@ -53,8 +55,10 @@ try {
 } catch {
   await appendFile(indexFile, 'url,stato,secondi,scene,preset,animazioni,cartella,errore\n');
 }
-const todo = force ? urls : urls.filter((u) => !done.has(u));
-if (todo.length < urls.length) console.log(`${urls.length - todo.length} siti già fatti (in ${indexFile}), li salto. --force per rifarli.`);
+const mine = shard ? urls.filter((_, k) => k % shard[1] === shard[0] - 1) : urls;
+if (shard) console.log(`fetta ${shard[0]}/${shard[1]}: ${mine.length} siti su ${urls.length}`);
+const todo = force ? mine : mine.filter((u) => !done.has(u));
+if (todo.length < mine.length) console.log(`${mine.length - todo.length} siti già fatti (in ${indexFile}), li salto. --force per rifarli.`);
 
 const csv = (v) => (/[,"\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v ?? ''));
 let failed = 0;

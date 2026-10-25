@@ -555,6 +555,12 @@
     const t = now();
     return S.tracked.filter((it) => it.lastChange && t - it.lastChange < withinMs).map((it) => it.id);
   };
+  window.__motionNow = now;
+  // How many (non-ambient) elements changed since `since`: 0 = only the scroll moved.
+  window.__motionActivity = (ignore, since) => {
+    const skip = new Set(ignore || []);
+    return S.tracked.filter((it) => !skip.has(it.id) && it.lastChange > since).length;
+  };
   window.__motionQuiet = (ignore) => {
     const t = now();
     const skip = new Set(ignore || []);

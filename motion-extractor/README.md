@@ -92,6 +92,7 @@ node src/cli.mjs --file urls.txt --parallel 4 --fast --no-video
   quelli `vuoto` (pagina caricata ma niente movimento: protezione anti-bot, muro dei cookie) ed
   `errore` vengono ritentati.
 - `--timeout 300`: secondi massimi per sito, poi passa al successivo.
+- `--shard 3/20`: fa solo la terza fetta di venti (per dividere il lavoro tra più computer).
 - I banner dei cookie vengono chiusi da soli (bottoni "Accetta", "Accept all", "OK"…).
 - `--parallel` al massimo pari ai core del computer meno uno: oltre, i fotogrammi rallentano e i tempi
   misurati peggiorano.
@@ -100,15 +101,31 @@ Tempi misurati su due siti reali (copie locali, computer a 4 core):
 
 | sito | lunghezza | normale | `--fast --no-video` |
 |---|---|---|---|
-| tomdekoning.work (Webflow, GSAP, Locomotive/Lenis) | 5 schermate | 47s | 35s |
-| hyperspeed.agency (GSAP, Lenis `duration 1.35`, scrub 1.25) | 23 schermate | 221s | 137s |
+| tomdekoning.work (Webflow, GSAP, Locomotive/Lenis) | 5 schermate | 41s | 29s |
+| hyperspeed.agency (GSAP, Lenis `duration 1.35`, scrub 1.25) | 23 schermate | 158s | 85s |
 
-Circa **6s per schermata in `--fast`** e **10s in modalità normale**, più il caricamento del sito.
-Per 500 siti di 8–15 schermate: **~3 ore** con `--fast --no-video --parallel 4`, ~4–5 ore in normale.
+Circa **20s fissi + 3–4s per schermata in `--fast`** (≈7s in modalità normale), più il caricamento.
+Gli step si allungano da soli dove non si muove niente e si fermano appena la pagina è ferma.
 
-In `--fast` coreografia, easing, durate, stagger, pin e parallax restano precisi; lo **scrub** invece
-viene sottostimato (non c'è tempo di aspettare che l'elemento raggiunga lo scroll): per i siti che
-vuoi replicare davvero, rilanciali senza `--fast`.
+| 500 siti di 8–15 schermate | tempo |
+|---|---|
+| un computer, `--fast --no-video --parallel 4` | ~2 ore |
+| **GitHub Actions, 20 macchine** (workflow `Estrai siti`) | **~15–20 minuti** |
+
+### Su 20 macchine con GitHub Actions
+
+1. Metti gli URL in `motion-extractor/urls.txt` (o un altro file) e fai push.
+2. GitHub → **Actions** → **Estrai siti** → **Run workflow**: file degli URL, numero di macchine
+   (max 20), modalità `fast` o `normale`.
+3. Alla fine scarica l'artifact **catalogo**: tutte le cartelle dei siti, `index.csv` unito e
+   `catalog.html`.
+
+Ogni macchina fa una fetta dei siti (`--shard i/n`), due alla volta. Repository pubblico: minuti
+gratuiti illimitati; privato: rientra nei minuti mensili del piano (≈300 minuti per 500 siti).
+
+In `--fast` coreografia, easing, durate, stagger e pin restano precisi; **scrub** e **loop** invece
+si perdono in parte (meno tempo per aspettare a pagina ferma): per i siti che vuoi usare davvero nei
+mix, rilanciali in modalità normale.
 
 ## Cosa ottieni (in `out/<sito>-<data>/`)
 

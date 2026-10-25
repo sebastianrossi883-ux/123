@@ -282,7 +282,10 @@ export function mergeScale(obj) {
 
 export function analyze(dump) {
   const allMarks = dump.marks || [];
-  const marks = allMarks.filter((m) => m.phase !== 'step');
+  const marks = allMarks.filter((m) => m.phase !== 'step' && m.phase !== 'ambient');
+  // elements already moving with the page at rest, before any scroll: loops / ambient motion
+  const ambientIds = new Set((allMarks.find((m) => m.phase === 'ambient') || {}).info || []);
+  const mouseStart = (allMarks.find((m) => m.phase === 'mouse') || {}).t ?? null;
   // Sites that scroll a transformed container (Locomotive, custom smooth scroll) never move
   // window.scrollY: use the wheel distance the extractor sent as a virtual scroll position.
   const steps = allMarks.filter((m) => m.phase === 'step');
@@ -333,11 +336,17 @@ export function analyze(dump) {
       const movingTime = segs.reduce((acc, sg) => acc + sg.end - sg.start, 0);
       const burstsWithMotion = new Set(moves.map((m) => m.burst).filter((b) => b >= 0));
 
-      if (movingTime > 6000 && movesInStillTails(moves, stillTails) > 0.8) {
-        const sg = segs.reduce((a, b) => (b.end - b.start > a.end - a.start ? b : a));
+      // a loop already runs before the mouse test starts (the cursor only moves during it)
+      const preMouse = mouseStart == null ? 0 : moves.filter((m) => m.t > mouseStart - 1500 && m.t <= mouseStart).length;
+      const ambientLoop = ambientIds.has(el.id) && movingTime > 3000 && preMouse >= 10;
+      if (ambientLoop || (movingTime > 6000 && movesInStillTails(moves, stillTails) > 0.8)) {
+        // median frame-to-frame speed: robust to the jump of a marquee wrapping around
+        const speeds = moves.map((m) => ((m.row.ch[ch] - m.prev.ch[ch]) / Math.max(1, m.row.t - m.prev.t)) * 1000);
+        const typical = median(speeds.map(Math.abs));
+        const steady = speeds.filter((v) => Math.abs(v) <= typical * 5);
         animations.push({
           kind: 'loop', element: el, ch,
-          speedPerSecond: round(((sg.to - sg.from) / (sg.end - sg.start)) * 1000, 2),
+          speedPerSecond: round(median(steady), 2),
         });
       } else if (burstsWithMotion.size >= 3) {
         animations.push(scrollLinked(el, ch, segs, moves, bursts));

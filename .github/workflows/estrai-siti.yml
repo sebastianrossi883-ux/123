@@ -1,0 +1,103 @@
+# Estrae il DNA di molti siti su più macchine GitHub in parallelo, poi unisce tutto in un catalogo.
+# Avvio: GitHub → Actions → "Estrai siti" → Run workflow (file con gli URL, numero di macchine, modalità).
+name: Estrai siti
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: File con gli URL (uno per riga), relativo alla radice del repository
+        default: motion-extractor/urls.txt
+      shards:
+        description: Quante macchine usare insieme (1-20)
+        default: '20'
+      mode:
+        description: fast (catalogo) o normale (DNA da usare davvero)
+        default: fast
+        type: choice
+        options: [fast, normale]
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - id: plan
+        env:
+          SHARDS: ${{ inputs.shards }}
+        run: |
+          n=$(python3 -c "import os; print(max(1, min(20, int(os.environ['SHARDS']))))")
+          echo "shards=$(python3 -c "print(list(range(1, $n + 1)))")" >> "$GITHUB_OUTPUT"
+
+  extract:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    defaults:
+      run:
+        working-directory: motion-extractor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: motion-extractor/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Estrai la fetta ${{ matrix.shard }}
+        env:
+          URLS: ${{ inputs.urls }}
+          MODE: ${{ inputs.mode }}
+          SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ strategy.job-total }}
+        run: |
+          FAST=""; [ "$MODE" = "fast" ] && FAST="--fast"
+          node src/cli.mjs --file "$GITHUB_WORKSPACE/$URLS" --shard "$SHARD/$TOTAL" --parallel 2 --no-video $FAST --timeout 240 || true
+          mv out/index.csv "out/index-$SHARD.csv" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dna-${{ matrix.shard }}
+          path: motion-extractor/out
+          retention-days: 30
+
+  catalog:
+    needs: extract
+    if: always()
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: motion-extractor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: motion-extractor/package-lock.json
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dna-*
+          merge-multiple: true
+          path: motion-extractor/out
+      - name: Unisci gli esiti e costruisci il catalogo
+        run: |
+          head -n 1 "$(ls out/index-*.csv | head -n 1)" > out/index.csv
+          for f in out/index-*.csv; do tail -n +2 "$f" >> out/index.csv; done
+          node src/dna.mjs catalog out
+          echo "### Esito" >> "$GITHUB_STEP_SUMMARY"
+          awk -F, 'NR>1{c[$2]++} END{for (s in c) print "- " s ": " c[s]}' out/index.csv >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalogo
+          path: motion-extractor/out
+          retention-days: 30

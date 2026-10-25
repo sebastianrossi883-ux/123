@@ -124,6 +124,7 @@ async function extractWith(browser, url, o) {
   // shapes): ignored when deciding that a step has settled. Decided once, before scrolling, so a
   // scrub still catching up after a step is never mistaken for it.
   const ambient = await page.evaluate(() => window.__motionMovingIds(500));
+  await page.evaluate((ids) => window.__motionMark('ambient', ids), ambient);
   log('scroll a step (con rotella, così funziona anche con Lenis)…');
   await page.evaluate(() => window.__motionMark('scroll'));
   let scrolled = 0;
@@ -137,22 +138,32 @@ async function extractWith(browser, url, o) {
   });
   const probe = () =>
     page.evaluate(() => [Math.round(window.scrollY), ...window.__motionProbeEls.map((e) => Math.round(e.getBoundingClientRect().top))].join(','));
+  // Steps grow through stretches where nothing but the scroll moves (up to 1.5 screens) and go
+  // back to `step` as soon as something animates, so empty parts of a page cost little time.
+  let stepSize = o.step;
+  let emptySteps = 0;
   while (scrolled < o.maxScroll && stuck < 2) {
     const before = await probe();
-    await page.evaluate((c) => window.__motionMark('step', c), scrolled + o.step);
-    for (let d = 0; d < o.step; d += 100) {
-      await page.mouse.wheel(0, 100);
-      await sleep(30);
-    }
+    const stepStart = await page.evaluate(() => window.__motionNow());
+    await page.evaluate((c) => window.__motionMark('step', c), scrolled + stepSize);
+    await page.mouse.wheel(0, stepSize); // one event: several small ones cost up to 0.6s on heavy pages
     const waitStart = Date.now();
+    let active = 0;
     while (Date.now() - waitStart < o.pause) {
       await sleep(100);
-      const quiet = await page.evaluate((ids) => window.__motionQuiet(ids), ambient);
-      if (Date.now() - waitStart >= o.minPause && quiet >= o.settle) break;
+      const st = await page.evaluate(([ids, since]) => ({ quiet: window.__motionQuiet(ids), active: window.__motionActivity(ids, since) }), [ambient, stepStart]);
+      active = st.active;
+      const elapsed = Date.now() - waitStart;
+      // only the scroll moved, and it stopped (every third step still waits fully: loops are told
+      // apart from scroll-driven motion in those still moments)
+      if (!active && elapsed >= 300 && st.quiet >= 300 && emptySteps % 3 !== 2) break;
+      if (elapsed >= o.minPause && st.quiet >= o.settle) break;
     }
     const after = await probe();
     stuck = after === before ? stuck + 1 : 0;
-    scrolled += o.step;
+    scrolled += stepSize;
+    emptySteps = active ? 0 : emptySteps + 1;
+    stepSize = active ? o.step : Math.min(o.step * (1 + emptySteps), Math.round(o.height * 1.5));
     if (Math.floor(scrolled / o.height) >= shot) {
       await page.screenshot({ path: path.join(outDir, 'screens', `${String(shot).padStart(3, '0')}-scroll-${scrolled}.png`) });
       shot++;
