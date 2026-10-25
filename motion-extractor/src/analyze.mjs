@@ -183,20 +183,20 @@ function movingSteps(prows, ch, bursts) {
 // Share of the still moments (while the element was observed: it is only sampled near the viewport)
 // in which it moves as fast at the end as at the start: ~1 for loops. A scrub catching up with the
 // scroll also moves while the page is still, but it slows down to a stop.
-function movesInStillTails(moves, gaps) {
+function movesInStillTails(moves, gaps, longIsEnough = true) {
   if (!moves.length) return 0;
   const from = moves[0].t;
   const to = moves[moves.length - 1].t;
   const seen = gaps.filter(([a, b]) => a >= from - 50 && b <= to + 50);
   // one still moment is enough evidence only if it is long (≥1.5s): nothing driven by scroll lasts that
-  if (seen.length < 2 && !(seen.length === 1 && seen[0][1] - seen[0][0] >= 1500)) return 0;
+  if (seen.length < 2 && !(longIsEnough && seen.length === 1 && seen[0][1] - seen[0][0] >= 1500)) return 0;
   const sum = (a, b) => moves.reduce((acc, m) => (m.t >= a && m.t <= b ? acc + m.dv : acc), 0);
   const steady = seen.filter(([a, b]) => {
     const head = sum(a, a + 250);
     const tail = sum(b - 250, b);
     // still moving at the end of a long still moment (a scrub has caught up by then), or as fast
     // at the end as at the start
-    return tail > 0 && (b - a >= 1500 || tail >= head * 0.5);
+    return tail > 0 && ((longIsEnough && b - a >= 1500) || tail >= head * 0.5);
   });
   return steady.length / seen.length;
 }
@@ -354,7 +354,7 @@ export function analyze(dump) {
       // a loop already runs before the mouse test starts (the cursor only moves during it)
       const preMouse = mouseStart == null ? 0 : moves.filter((m) => m.t > mouseStart - 1500 && m.t <= mouseStart).length;
       const ambientLoop = ambientIds.has(el.id) && movingTime > 3000 && preMouse >= 10;
-      if (ambientLoop || (movingTime > 6000 && movesInStillTails(moves, stillTails) > 0.8)) {
+      if (ambientLoop || (movingTime > 6000 && movesInStillTails(moves, stillTails, !virtualScroll) > 0.8)) {
         // median frame-to-frame speed: robust to the jump of a marquee wrapping around
         const speeds = moves.map((m) => ((m.row.ch[ch] - m.prev.ch[ch]) / Math.max(1, m.row.t - m.prev.t)) * 1000);
         const typical = median(speeds.map(Math.abs));
