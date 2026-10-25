@@ -115,6 +115,28 @@ for (const [page, r] of Object.entries(results)) {
   });
 }
 
+for (const [page, r] of Object.entries(results)) {
+  const spec = await readFile(path.join(r.outDir, 'spec.md'), 'utf8');
+  await check(`${page}: scheda tecnica con ogni sezione, elemento e keyframe in px`, () => {
+    const sections = spec.split('\n## Sezione ').length - 1;
+    assert.equal(sections, r.scene.sections.length, `${sections} sezioni nella scheda`);
+    const start = spec.indexOf('— `html > body > section.story');
+    const story = spec.slice(start, spec.indexOf('\n## Sezione', start));
+    assert.ok(/\| `h2` \|/.test(story), 'h2 della scena non nella tabella elementi');
+    assert.ok(/\| `p` \| “Prima il titolo/.test(story), 'paragrafo non nella tabella elementi');
+    assert.ok(/✦\d+ ⏱️ a tempo — titolo “Una scena”/.test(story), 'animazione del titolo mancante');
+    assert.ok(/`expo\.out`/.test(story), 'easing del titolo mancante');
+    assert.ok(/\| 0% \| 0ms \| 72px \|/.test(story) && /\| 100% \| \d+ms \| 0px \|/.test(story), 'keyframe in px mancanti');
+    assert.ok(/scena \d+, parte a \+4\d\dms/.test(story), 'offset del testo nella scena mancante');
+    assert.ok(/\*\*pinnata\*\* per 150vh/.test(spec), 'pin mancante nella scheda');
+    assert.ok(/\| \d+px \| -?\d+(\.\d)?px \|/.test(spec), 'tabella scroll → valore mancante');
+    assert.ok(/position fixed/.test(spec), 'cursore fuori sezione mancante');
+    const starts = [...story.matchAll(/trigger: "html > body > section\.story[^"]*", start: "(top -?\d+%)"/g)].map((m) => m[1]);
+    assert.ok(starts.length >= 4 && new Set(starts).size === 1, 'start diversi nella stessa scena: ' + starts.join(', '));
+  });
+  await check(`${page}: tempo di estrazione sotto i 90s`, () => assert.ok(r.seconds < 90, `${r.seconds}s`));
+}
+
 await check('bundled: snippet leggibili dal bundle minificato', () => {
   const code = results.bundled.snippets.map((s) => s.code).join('\n');
   for (const needle of ['scrollTrigger', '"expo.out"', 'scrub: 1', 'M0,0 C0.7,0 0.2,1 1,1', 'lerp: .08']) {

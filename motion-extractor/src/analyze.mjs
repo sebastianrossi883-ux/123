@@ -112,7 +112,14 @@ function scrollLinked(el, ch, segs, moves, bursts) {
     triggerEnd: `top ${pct(docTop - last.row.s, r0.vh)}%`,
     scrub: lag < 80 ? true : round(lag / 1000, 1),
     scrubLagMs: Math.round(lag),
+    // Value at evenly spaced scroll positions (as seen on screen, scrub lag included).
+    samples: evenly(moves, 10).map((m) => ({ scroll: m.row.s, t: m.t, value: m.row.ch[ch], clip: m.row.clip, filter: m.row.filter })),
   };
+}
+
+function evenly(list, n) {
+  if (list.length <= n) return list;
+  return Array.from({ length: n }, (_, i) => list[Math.round((i / (n - 1)) * (list.length - 1))]);
 }
 
 function fitEase(seg) {
@@ -137,7 +144,7 @@ const median = (xs) => {
 const round = (v, d = 2) => +(+v).toFixed(d);
 const pct = (top, vh) => Math.round((top / vh) * 100);
 
-function propsFor(ch, value, row) {
+export function propsFor(ch, value, row) {
   const f = family(ch);
   if (f === 'clip') return { clipPath: roundCss(row.clip) };
   if (f === 'filter') return { filter: roundCss(row.filter) };
@@ -152,13 +159,13 @@ function propsFor(ch, value, row) {
     }
     return { [ch]: Math.round(value) };
   }
-  return { [ch]: round(value, 3) };
+  return { [ch]: round(value, family(ch).startsWith('scale') ? 2 : 3) };
 }
 
 const roundCss = (s) => s.replace(/-?\d*\.\d+/g, (n) => String(round(n, 1)));
 
 // from and to must use the same unit: if one side became yPercent, convert the other.
-function sameUnits(from, to, row) {
+export function sameUnits(from, to, row) {
   for (const k of ['x', 'y']) {
     const kp = k + 'Percent';
     const size = row.h;
@@ -167,7 +174,7 @@ function sameUnits(from, to, row) {
   }
 }
 
-function mergeScale(obj) {
+export function mergeScale(obj) {
   if ('scaleX' in obj && 'scaleY' in obj && Math.abs(obj.scaleX - obj.scaleY) < 0.01) {
     obj.scale = obj.scaleX;
     delete obj.scaleX;

@@ -8,6 +8,7 @@ import { writeReport } from './report.mjs';
 import { choreography } from './choreography.mjs';
 import { writeVisualReport } from './visual-report.mjs';
 import { writeBrief } from './brief.mjs';
+import { writeSpec } from './spec.mjs';
 
 const INJECT = fileURLToPath(new URL('./inject.js', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -32,6 +33,7 @@ function safeName(s) {
 
 export async function extract(url, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
+  const started = Date.now();
   const host = new URL(url).hostname;
   const outDir = path.resolve(o.out, `${safeName(host)}-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`);
   await mkdir(path.join(outDir, 'screens'), { recursive: true });
@@ -157,6 +159,7 @@ export async function extract(url, opts = {}) {
   await writeFile(path.join(outDir, 'dna.json'), JSON.stringify({ url, scene, ...dna }, null, 2));
   await writeVisualReport(outDir, { url, title: dump.title, scene, dna });
   await writeBrief(outDir, { url, title: dump.title, scene, dna });
+  await writeSpec(outDir, { url, title: dump.title, dump: dumpRest, scene, result });
 
   await writeFile(path.join(outDir, 'raw-dump.json'), JSON.stringify(dumpRest));
   await writeFile(path.join(outDir, 'recreated.js'), code);
@@ -165,8 +168,9 @@ export async function extract(url, opts = {}) {
     uniqueSnippets.map((s) => `// ── ${s.source} @${s.offset} [${s.tags.join(', ')}]\n${s.code}\n`).join('\n'),
   );
   await writeReport(outDir, { url, opts: o, dump: dumpRest, result, snippets: uniqueSnippets, sourceFiles, scriptList });
-  log(`fatto → ${path.join(outDir, 'report.md')}`);
-  return { outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
+  const seconds = Math.round((Date.now() - started) / 1000);
+  log(`fatto in ${seconds}s → ${path.join(outDir, 'spec.md')}`);
+  return { seconds, outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
 }
 
 async function ensure(dir, sub) {

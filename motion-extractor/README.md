@@ -16,6 +16,15 @@ npm install
 npx playwright install chromium
 ```
 
+## Perché è veloce
+
+Un'IA (Antigravity, Cursor, Claude…) che "estrae" un'animazione la ricostruisce a mano:
+legge il codice minificato, fa screenshot, ragiona, e ci mette minuti per sezione.
+Questo strumento non ragiona: **misura**. Un browser automatico registra ogni fotogramma di
+ogni elemento mentre la pagina viene scorsa, poi uno script calcola tutto. Una pagina intera,
+con tutte le sezioni, richiede **~1–2 minuti**; con `--parallel 3` analizzi tre siti alla volta.
+L'IA ti serve dopo, per lavorare sulla scheda già pronta.
+
 ## Uso
 
 ```bash
@@ -34,12 +43,14 @@ node src/cli.mjs --file urls.txt
 Opzioni: `--max-scroll 15000` (px da scorrere), `--step 400` (px per step), `--pause 2000`
 (ms di attesa dopo ogni step), `--intro 4000` (ms prima di iniziare a scorrere),
 `--no-video`, `--headed` (vedi il browser), `--out out`, `--no-interaction` (salta mouse e hover),
-`--hover-targets 6`.
+`--hover-targets 6`, `--parallel 3` (più siti alla volta), `--fast` (step 600px e pause 1.3s:
+circa 2× più veloce, start/end meno precisi).
 
 ## Cosa ottieni (in `out/<sito>-<data>/`)
 
 | File | Contenuto |
 |---|---|
+| `spec.md` | **Scheda tecnica completa**: per ogni sezione ogni elemento con x, y, larghezza, altezza (px e vw), font, colore, sfondo, raggio, z-index; per ogni elemento animato trigger (px di scroll e % del viewport), ritardo nella scena, durata, easing, valori di inizio/fine, keyframe in px al 0-10-25-50-75-90-100%, tabella scroll → valore per le animazioni con scrub, e la riga GSAP (agganciata alla sezione, con il ritardo come `delay`) |
 | `dna.html` | **Il DNA del sito in una pagina**: palette, scala tipografica, ritmo delle sezioni, easing dominanti, vocabolario dei reveal, timeline di ogni scena, livelli di parallax, pin, cursore e hover |
 | `brief.md` | Il DNA scritto come brief di art direction + **prompt pronto** per generare un sito *originale* con lo stesso stile |
 | `dna.json` | Gli stessi dati in formato leggibile da script (per costruirti un catalogo) |

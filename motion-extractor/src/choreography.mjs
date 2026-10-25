@@ -63,6 +63,7 @@ function buildScenes(time) {
   }
   return scenes.map((sc, i) => {
     const t0 = sc.anims[0].start;
+    for (const a of sc.anims) a.scene = { id: i + 1, offset: Math.round(a.start - t0), scroll0: sc.anims[0].scrollAtStart };
     const beats = [];
     const seenGroup = new Map();
     for (const a of sc.anims) {

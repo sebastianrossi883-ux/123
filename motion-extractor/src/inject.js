@@ -287,6 +287,71 @@
     return '#ffffff';
   }
 
+  // Rect without the element's own translate (so a half-finished parallax doesn't skew positions).
+  function layoutRect(el) {
+    const r = el.getBoundingClientRect();
+    const t = getComputedStyle(el).transform;
+    let tx = 0;
+    let ty = 0;
+    if (t && t !== 'none') {
+      const n = t.slice(t.indexOf('(') + 1, -1).split(',').map(Number);
+      [tx, ty] = t.startsWith('matrix3d') ? [n[12], n[13]] : [n[4], n[5]];
+    }
+    return { left: r.left - tx, top: r.top - ty, width: r.width, height: r.height };
+  }
+
+  const LAYOUT_SEL = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figure, img, video, picture, canvas, svg, a, button, input, label';
+  const TEXT_TAGS = /^(H[1-6]|P|LI|BLOCKQUOTE|A|BUTTON|LABEL)$/;
+  // Every meaningful element of a section with its position inside the section.
+  function layoutOf(sec) {
+    const sr = layoutRect(sec);
+    const picked = [];
+    const cands = [...sec.querySelectorAll(LAYOUT_SEL), ...S.tracked.map((t) => t.el).filter((e) => sec.contains(e) && e !== sec)];
+    for (const el of cands) {
+      if (picked.includes(el) || picked.length >= 80) continue;
+      // Text inside an already listed text block is part of it, unless it is animated on its own.
+      if (!el.__motionId && picked.some((p) => TEXT_TAGS.test(p.tagName) && p.contains(el))) continue;
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const r = layoutRect(el);
+      if (r.width < 4 || r.height < 4) continue;
+      picked.push(el);
+    }
+    return picked
+      .map((el) => {
+        const r = layoutRect(el);
+        const cs = getComputedStyle(el);
+        const text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+        const hasText = text.length > 0 && !el.matches('img, video, picture, canvas, svg');
+        return {
+          motionId: el.__motionId || null,
+          selector: cssPath(el),
+          tag: el.tagName.toLowerCase(),
+          text: text.slice(0, 50),
+          x: Math.round(r.left - sr.left),
+          y: Math.round(r.top - sr.top),
+          w: Math.round(r.width),
+          h: Math.round(r.height),
+          pageY: Math.round(r.top + scrollY),
+          xVw: +(((r.left - sr.left) / innerWidth) * 100).toFixed(1),
+          wVw: +((r.width / innerWidth) * 100).toFixed(1),
+          font: hasText
+            ? `${cs.fontFamily.split(',')[0].replace(/["']/g, '').trim()} ${Math.round(parseFloat(cs.fontSize))}px/${cs.lineHeight === 'normal' ? 'normal' : (parseFloat(cs.lineHeight) / parseFloat(cs.fontSize)).toFixed(2)} ${cs.fontWeight}${cs.letterSpacing !== 'normal' ? ` ls ${(parseFloat(cs.letterSpacing) / parseFloat(cs.fontSize)).toFixed(3)}em` : ''}${cs.textTransform !== 'none' ? ' ' + cs.textTransform : ''}`
+            : null,
+          color: hasText ? hex(cs.color) : null,
+          bg: hex(cs.backgroundColor) || (cs.backgroundImage !== 'none' ? cs.backgroundImage.slice(0, 60) : null),
+          radius: cs.borderRadius !== '0px' ? cs.borderRadius : null,
+          position: cs.position !== 'static' ? cs.position : null,
+          z: cs.zIndex !== 'auto' ? cs.zIndex : null,
+          overflowHidden: /hidden|clip/.test(cs.overflow),
+          src: el.currentSrc || el.getAttribute('src') || null,
+        };
+      })
+      .sort((a, b) => a.y - b.y || a.x - b.x);
+  }
+
+  const headingText = (h) => (h ? (h.innerText || h.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 60) : '');
+
   function scenography() {
     const vw = innerWidth;
     const vh = innerHeight;
@@ -380,7 +445,11 @@
           headings: sec.querySelectorAll('h1, h2, h3, h4').length,
           media: sec.querySelectorAll('img, video, picture, canvas, svg').length,
           words,
-          firstHeading: (sec.querySelector('h1, h2, h3') || {}).textContent?.trim().slice(0, 60) || '',
+          firstHeading: headingText(sec.querySelector('h1, h2, h3')),
+          gridColumns: cs.display === 'grid' ? cs.gridTemplateColumns : null,
+          widthPx: Math.round(r.width),
+          heightPx: Math.round(r.height),
+          elements: layoutOf(sec),
         };
       });
 
