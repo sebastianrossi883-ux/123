@@ -110,6 +110,30 @@ npx skills add https://github.com/sebastianrossi883-ux/123   # skills/motion-dna
 La skill `motion-dna` guida l'IA: DNA nuovo con `blend` → tag dell'HTML con il kit → un solo momento
 firma scritto con GSAP usando i token → `verify` ≥ 80% → checklist di scenografia.
 
+## Copie complete dei siti (HAR)
+
+"Salva pagina", saveweb2zip & co. non salvano i file che il sito carica dopo (pezzi di codice
+caricati al volo, dati dal CMS, immagini e audio dal CDN): la copia spesso non parte. Meglio
+registrare la visita vera e rigiocarla:
+
+```bash
+# sul tuo computer, sito online: registra tutto in un file
+node src/cli.mjs https://sito.com --record-har sito.har.zip --no-video
+# ovunque, anche offline: rianalizza esattamente quella visita
+node src/cli.mjs https://sito.com --from-har sito.har.zip
+```
+
+Per un lotto: `--record-har-dir har/` salva un file per sito (così, dopo una correzione dello
+strumento, si rianalizzano tutti senza riscaricarli e senza che i siti siano cambiati).
+
+## Schermate d'ingresso
+
+Molti siti premiati hanno una schermata iniziale ("Enter", "Sound On / Sound Off", "Skip", un loader
+che conta fino a 100%). Lo strumento aspetta fino a 15s (`--gate-wait`) che diventi cliccabile e la
+supera da solo scegliendo l'opzione senza audio; clicca solo mentre la pagina è bloccata dietro la
+schermata, mai un link normale. Se resta bloccato, l'affidabilità lo dice ("pagina ferma su una
+schermata d'ingresso o di caricamento").
+
 ## Tanti siti (centinaia)
 
 ```bash

@@ -29,6 +29,7 @@ export const DEFAULTS = {
   headed: false,
   interaction: true,
   timeout: 300,
+  gateWait: 15000, // ms to wait for an "Enter / Sound off" intro screen to become clickable
   hoverTargets: 6,
 };
 
@@ -67,11 +68,17 @@ async function extractWith(browser, url, o) {
   await mkdir(path.join(outDir, 'screens'), { recursive: true });
   const log = (...a) => o.quiet || console.log(`[${host}]`, ...a);
 
+  // HAR: --record-har saves every response of the visit (scripts loaded later, CMS data, CDN media)
+  // into one file; --from-har replays it offline, identical. A complete copy, unlike "save page".
+  const harOut = o.recordHar || (o.recordHarDir ? path.join(o.recordHarDir, `${safeName(url).slice(0, 80)}.har.zip`) : null);
+  if (harOut) await mkdir(path.dirname(path.resolve(harOut)), { recursive: true });
   const context = await browser.newContext({
     viewport: { width: o.width, height: o.height },
     reducedMotion: 'no-preference',
     recordVideo: o.video ? { dir: outDir, size: { width: o.width / 2, height: o.height / 2 } } : undefined,
+    recordHar: harOut ? { path: path.resolve(harOut), mode: 'full', content: 'attach' } : undefined,
   });
+  if (o.fromHar) await context.routeFromHAR(path.resolve(o.fromHar), { notFound: 'abort' });
   await context.addInitScript({ path: INJECT });
   const page = await context.newPage();
 
@@ -103,6 +110,11 @@ async function extractWith(browser, url, o) {
   await sleep(o.intro);
   const consent = await dismissConsent(page);
   if (consent) log(`banner cookie chiuso ("${consent}")`);
+  run.gate = await passGate(page, o.gateWait);
+  if (run.gate) {
+    log(`schermata d'ingresso superata ("${run.gate}")`);
+    await sleep(Math.min(o.intro, 2500)); // the real intro plays after the gate
+  }
   await page.screenshot({ path: path.join(outDir, 'screens', '000-top.png') });
 
   const hoveredKinds = [];
@@ -285,6 +297,63 @@ async function dismissConsent(page) {
     })
     .catch(() => null);
   if (clicked) await sleep(800);
+  return clicked;
+}
+
+// Intro screens of award-style sites ("Enter", "Sound off", "Skip"…), often shown only once their
+// loader reaches 100%. Only clicked while the page is locked behind them, never a normal nav link;
+// "without sound" is preferred.
+async function passGate(page, maxWait) {
+  const t0 = Date.now();
+  let clicked = null;
+  while (Date.now() - t0 < maxWait) {
+    const res = await page
+      .evaluate(() => {
+        const vh = innerHeight;
+        const html = document.documentElement;
+        const locked =
+          html.scrollHeight <= vh * 1.2 ||
+          /hidden|clip/.test(getComputedStyle(html).overflow + getComputedStyle(document.body).overflow);
+        const quiet = /^(sound\s*off|no\s*sound|without\s*sound|mute|senza\s*(audio|suono)|audio\s*off|continue\s*without\s*sound|enter\s*without\s*sound)\b/i;
+        const enter = /^(enter|entra|explore|start|begin|skip|continue|discover|let'?s\s*go|view\s*(the\s*)?site|open|click\s*to\s*enter|sound\s*on|play)\b/i;
+        const inOverlay = (el) => {
+          for (let a = el; a && a !== document.body; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            const r = a.getBoundingClientRect();
+            if (a.matches('[role="dialog"], [aria-modal="true"], [id*="intro" i], [class*="intro" i], [class*="loader" i], [class*="preload" i], [class*="enter" i]')) return true;
+            if ((cs.position === 'fixed' || cs.position === 'absolute') && r.width >= innerWidth * 0.8 && r.height >= vh * 0.8) return true;
+          }
+          return false;
+        };
+        const cands = [...document.querySelectorAll('button, [role="button"], a[href^="#"], a:not([href])')].filter((b) => {
+          const r = b.getBoundingClientRect();
+          const cs = getComputedStyle(b);
+          const text = (b.innerText || b.getAttribute('aria-label') || '').trim();
+          return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && +cs.opacity > 0.1 && text.length < 40 && (quiet.test(text) || enter.test(text));
+        });
+        const gate = cands.filter((b) => locked || inOverlay(b));
+        const pick = gate.find((b) => quiet.test((b.innerText || '').trim())) || gate.find((b) => !/sound\s*on|play/i.test(b.innerText || '')) || gate[0];
+        // a loader/intro overlay on screen (otherwise a short page is simply short: don't wait)
+        const overlay = [...document.querySelectorAll('body *')].some((el) => {
+          const cs = getComputedStyle(el);
+          if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity < 0.1) return false;
+          if (el.matches('[role="dialog"], [aria-modal="true"], [id*="intro" i], [class*="loader" i], [class*="preload" i], [id*="loader" i], [id*="preload" i]')) return true;
+          const r = el.getBoundingClientRect();
+          return cs.position === 'fixed' && r.width >= innerWidth * 0.9 && r.height >= vh * 0.9 && cs.pointerEvents !== 'none' && +cs.zIndex > 0;
+        });
+        if (!pick) return { locked: locked && overlay, clicked: null };
+        pick.click();
+        return { locked, clicked: (pick.innerText || pick.getAttribute('aria-label') || '').trim() };
+      })
+      .catch(() => ({ locked: false, clicked: null }));
+    if (res.clicked) {
+      clicked = res.clicked;
+      await sleep(1200);
+      continue; // a second screen may follow
+    }
+    if (!res.locked || clicked) break; // nothing in the way
+    await sleep(400); // locked: the loader may still be counting to 100%
+  }
   return clicked;
 }
 

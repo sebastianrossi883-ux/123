@@ -57,7 +57,14 @@ const consoleMessages = [];
 }
 const roundTrip = await extract(`${base}/user-page.html`, opts);
 console.log(`  user-page: ${roundTrip.outDir}`);
+// Intro screen that unlocks the page only after its loader reaches 100% ("Sound On / Sound Off").
+const gated = await extract(`${base}/gate.html`, opts);
+// HAR: record a visit, then replay it with the server switched off (a complete offline copy).
+const harPath = path.join(opts.out, 'bundled.har.zip');
+const recorded = await extract(`${base}/bundled.html`, { ...opts, recordHar: harPath });
 server.close();
+await new Promise((r) => setTimeout(r, 300));
+const replayed = await extract(`${base}/bundled.html`, { ...opts, fromHar: harPath });
 const mainResults = () => Object.entries(results).filter(([p]) => p !== 'virtual');
 
 for (const [page, r] of mainResults()) {
@@ -293,6 +300,21 @@ for (const [page, r] of mainResults()) {
     assert.ok(/## Problemi che si ripetono/.test(text) && /\*\*\d+ siti\*\* — media · .*WebGL/.test(text), 'avviso WebGL non raggruppato tra i problemi ricorrenti');
   });
 }
+
+await check('schermata d’ingresso superata da sola (sceglie "Sound Off")', () => {
+  assert.ok(gated.result.animations.length > 0, 'nessuna animazione dopo l’ingresso');
+  assert.ok(/sound off/i.test(gated.quality.facts.gate || ''), 'non ha cliccato Sound Off: ' + gated.quality.facts.gate);
+  const title = gated.result.animations.find((a) => a.element.selector.includes('title') && a.kind === 'time');
+  assert.ok(title && title.ease.best.name === 'power3.out', 'animazione dopo l’ingresso non misurata');
+  assert.notEqual(gated.quality.level, 'bassa', gated.quality.issues.map((i) => i.text).join(' | '));
+});
+await check('HAR: il sito registrato si rianalizza offline uguale (server spento)', () => {
+  const a = recorded.result.animations.length;
+  const b = replayed.result.animations.length;
+  assert.ok(b > 0 && Math.abs(a - b) <= Math.max(3, a * 0.1), `animazioni ${a} dal vivo, ${b} dal HAR`);
+  assert.equal(replayed.dna.pins.length, recorded.dna.pins.length);
+  assert.equal(replayed.quality.facts.pageErrors, 0, 'errori nel replay');
+});
 
 await check('bundled: snippet leggibili dal bundle minificato', () => {
   const code = results.bundled.snippets.map((s) => s.code).join('\n');

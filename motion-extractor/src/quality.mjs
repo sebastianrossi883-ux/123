@@ -34,7 +34,8 @@ export function assess({ run, dump, result, dna, kit, codeTexts = [] }) {
   const fitErr = median(fitted.map((a) => a.ease.best.err));
 
   // what could not be done
-  if (!anims.length) add('alta', 'nessuna animazione registrata: protezione anti-bot, muro dei cookie o sito senza animazioni (prova --headed)');
+  if (!anims.length && dump.docHeight <= dump.viewport.h * 1.2) add('alta', `pagina ferma su una schermata d'ingresso o di caricamento${run.gate ? ` (cliccato "${run.gate}")` : ''}: nella copia scaricata mancano file, oppure serve --headed`);
+  else if (!anims.length) add('alta', 'nessuna animazione registrata: protezione anti-bot, muro dei cookie o sito senza animazioni (prova --headed)');
   if (!run.reachedEnd) add('alta', `pagina non scorsa fino in fondo (fermata a ${run.scrolled}px): alza --max-scroll`);
   if (run.scriptFailures.length) add('alta', `${run.scriptFailures.length} script non caricati: parte del codice delle animazioni manca (${run.scriptFailures.slice(0, 2).join(', ')})`);
   if (run.pageErrors.length) add('media', `${run.pageErrors.length} errori JavaScript nella pagina: alcune animazioni potrebbero non essere partite («${run.pageErrors[0].slice(0, 90)}»)`);
@@ -106,6 +107,7 @@ export function assess({ run, dump, result, dna, kit, codeTexts = [] }) {
       pageErrors: run.pageErrors.length,
       reachedEnd: run.reachedEnd,
       crossCheck,
+      gate: run.gate || null,
     },
   };
 }

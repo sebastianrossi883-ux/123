@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixture gate</title>
+<style>
+  html, body { margin: 0; background: #0b0b0b; color: #eee; font-family: system-ui, sans-serif; }
+  html.locked, html.locked body { overflow: hidden; height: 100%; }
+  #intro { position: fixed; inset: 0; z-index: 50; background: #000; display: grid; place-items: center; }
+  #intro .choice { display: none; gap: 20px; }
+  #intro.ready .choice { display: flex; }
+  #intro button { background: none; border: 1px solid #eee; color: #eee; padding: 10px 18px; font-size: 18px; }
+  section { min-height: 100vh; padding: 12vh 8vw; box-sizing: border-box; }
+  .card { height: 40vh; background: #e4572e; border-radius: 12px; }
+  h1 { font-size: 8vw; margin: 0; }
+</style>
+</head>
+<body>
+  <!-- An award-style intro: a loader counts to 100%, then "Sound On / Sound Off" unlocks the page. -->
+  <div id="intro"><div><p class="per">0%</p><div class="choice"><button class="on">Sound On</button><button class="off">Sound Off</button></div></div></div>
+  <section><h1 class="title">Dopo l'ingresso</h1></section>
+  <section><div class="card"></div></section>
+  <section><p>Fine.</p></section>
+  <script src="gsap.min.js"></script>
+  <script src="ScrollTrigger.min.js"></script>
+  <script>
+    document.documentElement.classList.add('locked');
+    gsap.registerPlugin(ScrollTrigger);
+    gsap.set('.title', { yPercent: 100, opacity: 0 });
+    let p = 0;
+    const per = document.querySelector('.per');
+    const tick = setInterval(() => {
+      p = Math.min(100, p + 7);
+      per.textContent = p + '%';
+      if (p === 100) { clearInterval(tick); document.querySelector('#intro').classList.add('ready'); }
+    }, 150);
+    const enter = () => {
+      gsap.to('#intro', { opacity: 0, duration: 0.6, onComplete: () => document.querySelector('#intro').remove() });
+      document.documentElement.classList.remove('locked');
+      gsap.to('.title', { yPercent: 0, opacity: 1, duration: 1.1, ease: 'power3.out', delay: 0.4 });
+      gsap.from('.card', { y: 90, opacity: 0, duration: 1, ease: 'expo.out', scrollTrigger: { trigger: '.card', start: 'top 80%' } });
+      ScrollTrigger.refresh();
+    };
+    document.querySelectorAll('#intro button').forEach((b) => b.addEventListener('click', enter));
+  </script>
+</body>
+</html>

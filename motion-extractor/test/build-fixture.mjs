@@ -37,4 +37,5 @@ await writeFile(path.join(dist, 'global.html'), html('global', [
 ].map((s) => `<script src="${s}"></script>`).join('\n  ')));
 await copyFile(path.join(fx, 'virtual.html'), path.join(dist, 'virtual.html'));
 await copyFile(path.join(fx, 'user-page.html'), path.join(dist, 'user-page.html'));
+await copyFile(path.join(fx, 'gate.html'), path.join(dist, 'gate.html'));
 console.log('fixture pronta in', dist);
