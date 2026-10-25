@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixture __NAME__</title>
+<style>
+  html.lenis, html.lenis body { height: auto; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #111; color: #eee; }
+  section { min-height: 100vh; padding: 10vh 8vw; box-sizing: border-box; }
+  .hero h1 { font-size: 9vw; line-height: 1; margin: 0; }
+  .line { display: block; overflow: hidden; }
+  .line span { display: inline-block; }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2vw; }
+  .card { height: 40vh; background: #2a2a2a; border-radius: 12px; }
+  .parallax { height: 100vh; overflow: hidden; position: relative; padding: 0; }
+  .parallax .bg { width: 100%; height: 130%; object-fit: cover; position: absolute; top: -15%; display: block;
+    background: linear-gradient(135deg, #335, #a63); }
+  .reveal { height: 70vh; background: linear-gradient(90deg, #c33, #36c); }
+  .marquee { overflow: hidden; white-space: nowrap; font-size: 6vw; padding: 4vh 0; }
+  .marquee-track { display: inline-block; }
+</style>
+</head>
+<body>
+  <section class="hero"><h1>
+    <span class="line"><span>Motion</span></span>
+    <span class="line"><span>che si</span></span>
+    <span class="line"><span>ricorda</span></span>
+  </h1></section>
+  <div class="marquee"><div class="marquee-track">GSAP · Lenis · ScrollTrigger · GSAP · Lenis · ScrollTrigger · </div></div>
+  <section class="cards"><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div></section>
+  <section class="parallax"><div class="bg"></div></section>
+  <section><div class="reveal"></div></section>
+  <section><p>Fine.</p></section>
+  __SCRIPTS__
+</body>
+</html>
