@@ -9,6 +9,7 @@ import { choreography } from './choreography.mjs';
 import { writeVisualReport } from './visual-report.mjs';
 import { writeBrief } from './brief.mjs';
 import { writeSpec } from './spec.mjs';
+import { writeKit } from './kit.mjs';
 
 const INJECT = fileURLToPath(new URL('./inject.js', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -80,6 +81,8 @@ export async function extract(url, opts = {}) {
     await sleep(800);
     const targets = await page.evaluate((n) => window.__motionHoverTargets(n), o.hoverTargets);
     for (const h of targets) {
+      await page.evaluate((sel) => window.__motionTrack(sel), h.selector);
+      await sleep(80);
       await page.evaluate((sel) => window.__motionMark('hover', sel), h.selector);
       await page.mouse.move(h.x, h.y, { steps: 5 });
       await sleep(700);
@@ -167,6 +170,7 @@ export async function extract(url, opts = {}) {
   await writeVisualReport(outDir, { url, title: dump.title, scene, dna });
   await writeBrief(outDir, { url, title: dump.title, scene, dna });
   await writeSpec(outDir, { url, title: dump.title, dump: dumpRest, scene, result });
+  const kit = await writeKit(outDir, { url, title: dump.title, result, dna, scene, snippets: uniqueSnippets, libs: dump.libs });
 
   await writeFile(path.join(outDir, 'raw-dump.json'), JSON.stringify(dumpRest));
   await writeFile(path.join(outDir, 'recreated.js'), code);
@@ -177,7 +181,7 @@ export async function extract(url, opts = {}) {
   await writeReport(outDir, { url, opts: o, dump: dumpRest, result, snippets: uniqueSnippets, sourceFiles, scriptList });
   const seconds = Math.round((Date.now() - started) / 1000);
   log(`fatto in ${seconds}s → ${path.join(outDir, 'spec.md')}`);
-  return { seconds, outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
+  return { seconds, kit, outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
 }
 
 async function ensure(dir, sub) {

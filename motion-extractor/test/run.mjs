@@ -1,7 +1,8 @@
 // End-to-end test: serves the fixtures on localhost, runs the extractor on each,
 // and checks that the known choreography in fixture/animations.js is recovered.
 import http from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, copyFile } from 'node:fs/promises';
+import { chromium } from 'playwright';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import assert from 'node:assert/strict';
@@ -42,6 +43,20 @@ for (const page of ['bundled', 'sourcemap', 'global', 'virtual']) {
   results[page] = await extract(`${base}/${page}.html`, opts);
   console.log(`  ${page}: ${results[page].outDir}`);
 }
+// Round trip: the kit extracted from the bundled page animates a different page; extracting
+// that page again must give back the same motion.
+await copyFile(path.join(results.bundled.outDir, 'motion-kit.js'), path.join(dist, 'motion-kit.js'));
+const consoleMessages = [];
+{
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  page.on('console', (m) => consoleMessages.push(`${m.type()}: ${m.text()}`));
+  await page.goto(`${base}/user-page.html`);
+  await page.waitForTimeout(1500);
+  await browser.close();
+}
+const roundTrip = await extract(`${base}/user-page.html`, opts);
+console.log(`  user-page: ${roundTrip.outDir}`);
 server.close();
 const mainResults = () => Object.entries(results).filter(([p]) => p !== 'virtual');
 
@@ -164,6 +179,54 @@ await check('virtual: scroll di un contenitore (senza window.scrollY)', () => {
   assert.ok(/expo\.out|power4\.out/.test(card.ease.best.name), `ease card ${card && card.ease.best.name}`);
   assert.ok(anims.some((a) => a.element.selector.includes('float') && a.kind === 'scroll'), 'parallax virtuale non rilevato');
 });
+
+{
+  const kit = results.bundled.kit;
+  const { dna, result } = roundTrip;
+  await check('kit: preset e casting estratti dal sito d’origine', () => {
+    for (const p of ['mask-slide', 'fade-up', 'scale-down-fade']) assert.ok(kit.presets[p], `preset ${p} mancante`);
+    assert.equal(kit.roles.heading.preset, 'mask-slide');
+    assert.equal(kit.roles.heading.split, 'lines');
+    assert.ok(kit.hovers.length && kit.cursor && kit.pin.horizontal && kit.lenis, 'hover/cursore/pin/lenis mancanti nel kit');
+    assert.equal(kit.lenis.lerp, 0.08);
+    // The paragraph (y 30, power2.out, 0.8s) must not be averaged with the 28 letters (back.out).
+    assert.equal(kit.roles.text.preset, 'fade-up');
+    assert.equal(kit.presets['fade-up'].ease, 'power2.out');
+    // texts in the source: the paragraph (30px) and the CSS-transition block (60px)
+    assert.ok([30, 60].some((y) => Math.abs(kit.presets['fade-up'].from.y - y) < 6), `fade-up y ${kit.presets['fade-up'].from.y}`);
+    const chars = Object.entries(kit.presets).find(([n]) => n.endsWith('-chars'));
+    assert.ok(chars && /back\.out/.test(chars[1].ease), 'variante per le lettere mancante');
+    const cards = Object.entries(kit.presets).find(([n]) => n.endsWith('-shape'));
+    assert.ok(cards && cards[1].ease === 'expo.out', 'variante per le card mancante');
+  });
+  await check('kit: gira senza errori sul sito nuovo', () => {
+    assert.ok(consoleMessages.some((m) => m.startsWith('info: [motion-kit]') && !/avvisi/.test(m)), consoleMessages.join(' | '));
+    assert.ok(!consoleMessages.some((m) => /^(error|warning)/.test(m)), consoleMessages.join(' | '));
+  });
+  await check('andata e ritorno: la scena del sito nuovo ha la stessa regia', () => {
+    const sc = dna.scenes.find((s) => s.section.includes('about'));
+    assert.ok(sc, 'scena .about non trovata: ' + dna.scenes.map((s) => s.section).join(' | '));
+    assert.equal(sc.roleOrder, 'heading → text → media');
+    const [h, p, m] = sc.beats;
+    const ms = kit.presets['mask-slide'];
+    assert.equal(h.reveal, 'mask-slide');
+    assert.equal(h.ease, ms.ease, `ease titolo ${h.ease} invece di ${ms.ease}`);
+    assert.ok(Math.abs(h.duration / 1000 - ms.duration) < ms.duration * 0.12, `durata titolo ${h.duration}`);
+    assert.ok(Math.abs(p.offset - kit.scene.pairOffsets['heading>text'] * 1000) < 90, `offset testo ${p.offset} vs ${kit.scene.pairOffsets['heading>text']}`);
+    assert.ok(Math.abs(m.offset - p.offset - kit.scene.pairOffsets['text>media'] * 1000) < 90, `offset media ${m.offset - p.offset}`);
+    assert.ok(/scale-down/.test(m.reveal), m.reveal);
+  });
+  await check('andata e ritorno: intro, parallax, pin, marquee, hover, cursore', () => {
+    assert.ok(result.animations.some((a) => a.phase === 'intro' && a.element.selector.includes('h1')), 'intro del titolo mancante');
+    const layer = dna.layers.find((l) => l.selector.includes('cover-img'));
+    assert.ok(layer && Math.abs(layer.screenSpeed - kit.parallax.speed) < 12, `parallax ${layer && layer.screenSpeed} vs ${kit.parallax.speed}`);
+    assert.ok(dna.pins.length === 1 && Math.abs(dna.pins[0].pinnedForVh - kit.pin.lengthVh) < 10, `pin ${dna.pins.map((p) => p.pinnedForVh)}`);
+    const loop = dna.loops.find((l) => l.selector.includes('ticker'));
+    assert.ok(loop && Math.abs(Math.abs(loop.speedPerSecond) - kit.marquee.speed) < kit.marquee.speed * 0.25, `marquee ${loop && loop.speedPerSecond} vs ${kit.marquee.speed}`);
+    assert.ok(dna.interactions.hover.some((h) => h.target.includes('btn')), 'hover mancante');
+    assert.ok(dna.interactions.cursor.length, 'cursore mancante');
+  });
+}
 
 await check('bundled: snippet leggibili dal bundle minificato', () => {
   const code = results.bundled.snippets.map((s) => s.code).join('\n');

@@ -50,6 +50,7 @@ circa 2× più veloce, start/end meno precisi).
 
 | File | Contenuto |
 |---|---|
+| `per-ia.md` + `motion-kit.js` | **Da dare all'IA che anima il tuo sito.** `motion-kit.js` contiene i preset misurati (easing, durate, distanze, stagger, ritardi tra titolo/testo/media, parallax, pin, marquee, cursore, hover) e anima qualsiasi HTML taggato con `data-motion`, `data-scene`, `data-parallax`…; `per-ia.md` dice all'IA quale attributo mettere su ogni tipo di elemento. L'IA non scrive animazioni, quindi non può inventare numeri |
 | `spec.md` | **Scheda tecnica completa**: per ogni sezione ogni elemento con x, y, larghezza, altezza (px e vw), font, colore, sfondo, raggio, z-index; per ogni elemento animato trigger (px di scroll e % del viewport), ritardo nella scena, durata, easing, valori di inizio/fine, keyframe in px al 0-10-25-50-75-90-100%, tabella scroll → valore per le animazioni con scrub, e la riga GSAP (agganciata alla sezione, con il ritardo come `delay`) |
 | `dna.html` | **Il DNA del sito in una pagina**: palette, scala tipografica, ritmo delle sezioni, easing dominanti, vocabolario dei reveal, timeline di ogni scena, livelli di parallax, pin, cursore e hover |
 | `brief.md` | Il DNA scritto come brief di art direction + **prompt pronto** per generare un sito *originale* con lo stesso stile |
@@ -61,6 +62,22 @@ circa 2× più veloce, start/end meno precisi).
 | `recording.webm` | Video della sessione: guardalo a 0.25x per capire la regia |
 | `screens/` | Uno screenshot per ogni schermata scorsa |
 | `raw-dump.json` | Tutti i dati grezzi fotogramma per fotogramma |
+
+## Flusso con un'altra IA
+
+1. `node src/cli.mjs https://sito-di-riferimento.com`
+2. Copia `motion-kit.js` accanto al tuo `index.html`.
+3. Dai all'IA il tuo HTML + `per-ia.md` (+ `spec.md` se vuoi i valori esatti) e chiedile di
+   aggiungere gli attributi secondo le istruzioni.
+4. Apri la pagina: in console `[motion-kit] N elementi in M scene`, senza avvisi.
+
+## Cosa registra
+
+`transform` (x, y, scala, rotazione), `opacity`, `clip-path`, `filter`, `width`/`height`,
+`background-color`, `color`, `border-radius`, `stroke-dashoffset` (linee SVG che si disegnano),
+`letter-spacing` — sia quando li cambia GSAP sia con transizioni/animazioni CSS attivate da
+classi (`.is-visible`), fino a 400 elementi (testi divisi in lettere inclusi), su pagine fino a
+40000px, anche su siti che scorrono un contenitore invece della finestra (Locomotive & co.).
 
 ## Cosa misura del DNA
 
@@ -114,7 +131,12 @@ overlay a tutto schermo (grana).
 npm run build:fixture && npm test
 ```
 
-Il test costruisce la stessa pagina in tre versioni (GSAP+Lenis nel bundle minificato,
+Il test più importante è l'**andata e ritorno**: il kit estratto dalla pagina di prova anima una
+pagina diversa (`test/fixture/user-page.html`, taggata solo con attributi come farebbe l'IA);
+quella pagina viene ri-estratta e deve dare la stessa regia, gli stessi easing e durate, gli
+stessi ritardi, parallax, pin, marquee, hover e cursore.
+
+Inoltre il test costruisce la stessa pagina in tre versioni (GSAP+Lenis nel bundle minificato,
 bundle con source map, GSAP da `<script>`) e verifica che vengano ritrovati easing, durate,
 stagger, scrub, clip-path, loop, il codice nel bundle e il sorgente originale, e il DNA:
 la scena titolo → testo → media con i suoi offset, il pin da 150vh, il cursore, l'hover CSS,

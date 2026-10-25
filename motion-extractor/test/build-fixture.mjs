@@ -25,7 +25,7 @@ await writeFile(path.join(fx, 'global-entry.js'), [
   'run({ gsap: window.gsap, ScrollTrigger: window.ScrollTrigger, CustomEase: window.CustomEase, Lenis: window.Lenis });',
 ].join('\n'));
 await build({ ...common, entryPoints: [path.join(fx, 'global-entry.js')], outfile: path.join(dist, 'app-global.js') });
-for (const f of ['gsap.min.js', 'ScrollTrigger.min.js', 'CustomEase.min.js']) {
+for (const f of ['gsap.min.js', 'ScrollTrigger.min.js', 'CustomEase.min.js', 'SplitText.min.js']) {
   await copyFile(path.join(nm, 'gsap', 'dist', f), path.join(dist, f));
 }
 await copyFile(path.join(nm, 'lenis', 'dist', 'lenis.min.js'), path.join(dist, 'lenis.min.js'));
@@ -36,4 +36,5 @@ await writeFile(path.join(dist, 'global.html'), html('global', [
   'gsap.min.js', 'ScrollTrigger.min.js', 'CustomEase.min.js', 'lenis.min.js', 'app-global.js',
 ].map((s) => `<script src="${s}"></script>`).join('\n  ')));
 await copyFile(path.join(fx, 'virtual.html'), path.join(dist, 'virtual.html'));
+await copyFile(path.join(fx, 'user-page.html'), path.join(dist, 'user-page.html'));
 console.log('fixture pronta in', dist);

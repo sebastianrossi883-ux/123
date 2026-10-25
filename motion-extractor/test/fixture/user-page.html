@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Studio Nord</title>
+<!-- A DIFFERENT site, tagged only with motion-kit data-attributes (as the other AI would do). -->
+<style>
+  html.lenis, html.lenis body { height: auto; }
+  body { margin: 0; font-family: Georgia, serif; background: #f3efe7; color: #1a1a1a; }
+  section { min-height: 100vh; padding: 12vh 6vw; box-sizing: border-box; }
+  h1 { font-size: 8vw; line-height: .95; margin: 0 0 4vh; font-weight: 400; }
+  h2 { font-size: 4.5vw; line-height: 1; margin: 0 0 3vh; font-weight: 400; }
+  p { font: 19px/1.6 system-ui, sans-serif; max-width: 42ch; }
+  .btn { display: inline-block; padding: 14px 26px; border: 1px solid #1a1a1a; border-radius: 99px; color: inherit; text-decoration: none; }
+  .ticker { overflow: hidden; white-space: nowrap; font-size: 5vw; border-block: 1px solid #1a1a1a; padding: 2vh 0; }
+  .ticker-track { display: inline-block; }
+  .about { display: grid; grid-template-columns: 1.1fr .9fr; gap: 5vw; align-items: center; }
+  .pic { height: 65vh; background: linear-gradient(200deg, #8c6d4f, #d9c3a0); }
+  .cover { height: 90vh; overflow: hidden; position: relative; }
+  .cover-img { position: absolute; inset: 0; height: 125%; top: -12.5%; background: linear-gradient(120deg, #2f3e46, #84a98c); }
+  .works { height: 100vh; overflow: hidden; padding: 0; }
+  .track { display: flex; gap: 3vw; width: max-content; height: 100%; padding: 14vh 6vw; box-sizing: border-box; }
+  .track div { width: 45vw; background: #1a1a1a; }
+</style>
+</head>
+<body>
+  <section class="hero" data-intro>
+    <h1 data-motion="mask-slide" data-split="lines">Studio Nord<br>architettura<br>e paesaggio</h1>
+    <p data-motion="fade-up">Progettiamo case, scuole e giardini nelle Alpi da vent'anni.</p>
+    <a class="btn" href="#contatti" data-hover="hover-1">Contatti</a>
+  </section>
+  <div class="ticker"><div class="ticker-track" data-marquee>Case · Scuole · Giardini · Restauri · Case · Scuole · Giardini · Restauri · </div></div>
+  <section class="about" data-scene>
+    <div>
+      <h2 data-motion="mask-slide" data-split="lines">Il metodo<br>in tre fasi</h2>
+      <p data-motion="fade-up">Ascolto, progetto, cantiere: lo stesso team dall'inizio alla fine.</p>
+    </div>
+    <div class="pic" data-role="media" data-motion="scale-down-fade"></div>
+  </section>
+  <div class="cover"><div class="cover-img" data-parallax></div></div>
+  <section class="works" data-pin-horizontal><div class="track" data-track><div></div><div></div><div></div><div></div></div></section>
+  <section class="end" data-scene>
+    <h2 data-motion="mask-slide" data-split="lines">Parliamone</h2>
+    <p data-motion="fade-up">Scrivici: rispondiamo entro due giorni.</p>
+  </section>
+  <div data-cursor></div>
+  <script src="gsap.min.js"></script>
+  <script src="ScrollTrigger.min.js"></script>
+  <script src="SplitText.min.js"></script>
+  <script src="CustomEase.min.js"></script>
+  <script src="lenis.min.js"></script>
+  <script src="motion-kit.js"></script>
+</body>
+</html>

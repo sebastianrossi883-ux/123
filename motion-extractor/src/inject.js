@@ -498,6 +498,14 @@
   }
   window.__motionScene = scenography;
 
+  // Start sampling an element (and its children) before the extractor hovers it.
+  window.__motionTrack = (selector) => {
+    try {
+      const el = document.querySelector(selector);
+      if (el) [el, ...el.querySelectorAll('*')].slice(0, 12).forEach(track);
+    } catch (e) {}
+  };
+
   // Interactive elements visible in the first viewport, for the hover test.
   window.__motionHoverTargets = (max) =>
     [...document.querySelectorAll('a, button, [role="button"]')]

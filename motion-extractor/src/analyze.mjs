@@ -310,9 +310,27 @@ function detectStagger(timeAnims) {
     const flush = () => {
       if (cluster.length >= 2) {
         const deltas = cluster.slice(1).map((a, i) => a.start - cluster[i].start);
-        const mean = deltas.reduce((x, y) => x + y, 0) / deltas.length;
+        let mean = deltas.reduce((x, y) => x + y, 0) / deltas.length;
         const sd = Math.sqrt(deltas.reduce((x, d) => x + (d - mean) ** 2, 0) / deltas.length);
-        if (mean > 5 && sd < Math.max(14, mean * 0.3)) {
+        let regular = mean > 5 && sd < Math.max(14, mean * 0.3);
+        if (!regular && cluster.length >= 4) {
+          // Many elements → frames get coarse; a linear fit of start time vs index is robust to that jitter.
+          const n = cluster.length;
+          const xs = cluster.map((_, i) => i);
+          const ys = cluster.map((a) => a.start);
+          const mx = (n - 1) / 2;
+          const my = ys.reduce((x, y) => x + y, 0) / n;
+          const sxy = xs.reduce((acc, x, i) => acc + (x - mx) * (ys[i] - my), 0);
+          const sxx = xs.reduce((acc, x) => acc + (x - mx) ** 2, 0);
+          const slope = sxy / sxx;
+          const ssRes = ys.reduce((acc, y, i) => acc + (y - (my + slope * (i - mx))) ** 2, 0);
+          const ssTot = ys.reduce((acc, y) => acc + (y - my) ** 2, 0);
+          if (slope > 5 && ssTot > 0 && 1 - ssRes / ssTot > 0.9) {
+            regular = true;
+            mean = slope;
+          }
+        }
+        if (regular) {
           const id = groupId++;
           cluster.forEach((a, i) => {
             a.stagger = { group: id, index: i, size: cluster.length, each: round(mean / 1000, 3) };
