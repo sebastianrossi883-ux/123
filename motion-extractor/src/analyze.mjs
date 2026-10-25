@@ -33,7 +33,7 @@ function parseRows(rows) {
 }
 
 // Scroll changes grouped into bursts (one burst ≈ one wheel step + smoothing).
-function scrollBursts(scroll) {
+export function scrollBursts(scroll) {
   const bursts = [];
   // The first entry is the initial position, not a scroll.
   for (const [t, s] of scroll.slice(1)) {
@@ -178,7 +178,12 @@ function mergeScale(obj) {
 
 export function analyze(dump) {
   const bursts = scrollBursts(dump.scroll);
-  const firstScroll = bursts.length ? bursts[0].tStart : Infinity;
+  const marks = dump.marks || [];
+  const phaseAt = (t) => {
+    let m = null;
+    for (const k of marks) if (k.t <= t) m = k;
+    return m ? { phase: m.phase === 'settle' ? 'hover' : m.phase, info: m.info } : { phase: 'intro', info: null };
+  };
   // The last 400ms of every pause (and of the intro): only loops still move there.
   const stillTails = bursts
     .map((b, i) => [i ? bursts[i - 1].tEnd : 0, b.tStart])
@@ -223,11 +228,16 @@ export function analyze(dump) {
       const main = g.segs.reduce((a, b) =>
         Math.abs(b.to - b.from) / MIN_AMPLITUDE[family(b.ch)] > Math.abs(a.to - a.from) / MIN_AMPLITUDE[family(a.ch)] ? b : a,
       );
+      const duration = Math.max(...g.segs.map((s) => s.end - s.start));
+      // Instant jumps are gsap.set / immediateRender of .from() / pin offsets, not animations.
+      if (duration < 60) continue;
       const r0 = main.rows[0];
+      const { phase, info } = phaseAt(g.start);
       animations.push({
         kind: 'time', element: el,
-        start: g.start, duration: Math.max(...g.segs.map((s) => s.end - s.start)),
-        onLoad: g.start < firstScroll,
+        start: g.start, duration,
+        phase, hoverTarget: info,
+        onLoad: phase === 'intro',
         triggerStart: `top ${pct(r0.top - (r0.ch.y || 0), r0.vh)}%`,
         scrollAtStart: r0.s,
         segs: g.segs,
@@ -241,7 +251,7 @@ export function analyze(dump) {
 }
 
 function signature(a) {
-  return a.segs.map((s) => `${s.ch}:${Math.round(s.from)}>${Math.round(s.to)}`).sort().join(',') + '|' + Math.round(a.duration / 100);
+  return a.phase + '|' + a.segs.map((s) => `${s.ch}:${Math.round(s.from)}>${Math.round(s.to)}`).sort().join(',');
 }
 
 function detectStagger(timeAnims) {
@@ -256,7 +266,7 @@ function detectStagger(timeAnims) {
     list.sort((a, b) => a.start - b.start);
     let cluster = [list[0]];
     const flush = () => {
-      if (cluster.length >= 3) {
+      if (cluster.length >= 2) {
         const deltas = cluster.slice(1).map((a, i) => a.start - cluster[i].start);
         const mean = deltas.reduce((x, y) => x + y, 0) / deltas.length;
         const sd = Math.sqrt(deltas.reduce((x, d) => x + (d - mean) ** 2, 0) / deltas.length);
@@ -269,7 +279,8 @@ function detectStagger(timeAnims) {
       }
     };
     for (const a of list.slice(1)) {
-      if (a.start - cluster[cluster.length - 1].start < 400) cluster.push(a);
+      const prev = cluster[cluster.length - 1];
+      if (a.start - prev.start < 400 && Math.abs(a.duration - cluster[0].duration) < cluster[0].duration * 0.2) cluster.push(a);
       else {
         flush();
         cluster = [a];
@@ -317,6 +328,12 @@ export function recreate(result) {
       const st = { trigger: a.element.selector, start: a.triggerStart, end: a.triggerEnd, scrub: '__raw:' + a.scrub };
       lines.push(`// scroll-linked: scroll ${a.scrollStart}px → ${a.scrollEnd}px, ritardo misurato ${a.scrubLagMs}ms`);
       lines.push(`gsap.fromTo(${JSON.stringify(a.element.selector)}, ${js(from)}, ${js({ ...to, ease: 'none', scrollTrigger: '__raw:' + js(st) })});`, '');
+      continue;
+    }
+    if (a.phase === 'mouse' || a.phase === 'hover') {
+      done.add(a);
+      const what = a.phase === 'mouse' ? 'reagisce al mouse' : `hover su ${a.hoverTarget}`;
+      lines.push(`// ${what}: ${JSON.stringify(a.element.selector)} (${a.segs.map((s) => s.ch).join(', ')}) — vedi dna.json → interactions`, '');
       continue;
     }
     let members = [a];

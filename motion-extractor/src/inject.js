@@ -17,7 +17,9 @@
     plugins: [],
     contexts: [],
     cssAnimations: [],
+    marks: [],
   });
+  window.__motionMark = (phase, info) => S.marks.push({ t: now(), phase, info: info || null });
   let nextId = 1;
 
   function cssPath(el) {
@@ -222,7 +224,220 @@
     };
   });
 
-  // ---- 5. Final dump, called by the extractor after scrolling ----
+  // ---- 5. Role of an animated element in the page (for the choreography) ----
+  function sectionOf(el) {
+    const sec = el.closest('section, header, footer, article, [class*="section"]');
+    if (sec && sec !== document.body) return sec;
+    let a = el;
+    while (a.parentElement && a.parentElement !== document.body && a.parentElement.tagName !== 'MAIN') a = a.parentElement;
+    return a;
+  }
+  function meta(el) {
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    const text = (el.textContent || '').trim();
+    const fs = parseFloat(cs.fontSize);
+    const bg = cs.backgroundImage;
+    const isMedia =
+      el.matches('img, video, picture, canvas, svg') ||
+      (bg !== 'none' && !/^(linear|radial|conic)-gradient/.test(bg)) ||
+      (!!el.querySelector('img, video, picture, canvas') && text.length < 20);
+    let role = 'shape';
+    if (el.closest('h1, h2, h3, h4, h5, h6, [role="heading"]')) role = 'heading';
+    else if (isMedia) role = 'media';
+    else if (el.closest('a, button')) role = 'button';
+    else if (text) role = fs >= 32 ? 'heading' : 'text';
+    else if (r.width * r.height > innerWidth * innerHeight * 0.15) role = 'media';
+    const p = el.parentElement;
+    let masked = false;
+    if (p) {
+      const pcs = getComputedStyle(p);
+      const pr = p.getBoundingClientRect();
+      masked = /hidden|clip/.test(pcs.overflow + pcs.overflowX + pcs.overflowY) && pr.height < r.height * 1.6 && pr.height > 0;
+    }
+    const sec = sectionOf(el);
+    return {
+      role,
+      masked,
+      fixed: cs.position === 'fixed',
+      w: Math.round(r.width),
+      h: Math.round(r.height),
+      fontSize: Math.round(fs),
+      section: cssPath(sec),
+      sectionTop: Math.round(sec.getBoundingClientRect().top + scrollY),
+    };
+  }
+
+  // ---- 6. Scenography: typography, palette, sections, layout, effects ----
+  const hex = (c) => {
+    const m = c && c.match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    const [r, g, b, a = 1] = m[1].split(/[ ,/]+/).filter(Boolean).map(Number);
+    if (a < 0.1) return null;
+    return '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+  };
+  const bump = (map, k, w) => k != null && map.set(k, (map.get(k) || 0) + w);
+  const top = (map, n) => [...map].sort((a, b) => b[1] - a[1]).slice(0, n);
+
+  function effectiveBg(el) {
+    for (let a = el; a; a = a.parentElement) {
+      const c = hex(getComputedStyle(a).backgroundColor);
+      if (c) return c;
+    }
+    return '#ffffff';
+  }
+
+  function scenography() {
+    const vw = innerWidth;
+    const vh = innerHeight;
+    // Typography, weighted by number of characters.
+    const type = new Map();
+    const families = new Map();
+    const textColors = new Map();
+    let upper = 0;
+    let chars = 0;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let n;
+    let count = 0;
+    while ((n = walker.nextNode()) && count++ < 6000) {
+      const len = n.textContent.trim().length;
+      const el = n.parentElement;
+      if (len < 2 || !el || el.closest('script, style, noscript')) continue;
+      const cs = getComputedStyle(el);
+      if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+      const fam = cs.fontFamily.split(',')[0].replace(/["']/g, '').trim();
+      const size = Math.round(parseFloat(cs.fontSize));
+      const key = `${fam}|${size}|${cs.fontWeight}`;
+      if (!type.has(key)) {
+        type.set(key, {
+          family: fam, size, vw: +((size / vw) * 100).toFixed(2), weight: cs.fontWeight,
+          lineHeight: cs.lineHeight === 'normal' ? 'normal' : +(parseFloat(cs.lineHeight) / size).toFixed(2),
+          letterSpacing: cs.letterSpacing === 'normal' ? 0 : +(parseFloat(cs.letterSpacing) / size).toFixed(3),
+          transform: cs.textTransform, italic: cs.fontStyle === 'italic', chars: 0,
+          sample: n.textContent.trim().slice(0, 40), tag: el.tagName.toLowerCase(),
+        });
+      }
+      type.get(key).chars += len;
+      bump(families, fam, len);
+      bump(textColors, hex(cs.color), len);
+      chars += len;
+      if (cs.textTransform === 'uppercase') upper += len;
+    }
+    // Backgrounds weighted by area; layout + effects in the same pass.
+    const bgs = new Map();
+    const radii = new Map();
+    const blend = new Map();
+    const gridCols = new Map();
+    const containerWidths = new Map();
+    let backdrop = 0;
+    let filters = 0;
+    let overlays = [];
+    const els = document.querySelectorAll('body *');
+    for (let i = 0; i < els.length && i < 6000; i++) {
+      const el = els[i];
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none') continue;
+      const r = el.getBoundingClientRect();
+      const area = Math.min(r.width, vw) * Math.min(r.height, vh * 3);
+      bump(bgs, hex(cs.backgroundColor), area);
+      if (cs.borderRadius !== '0px' && area > 2000) bump(radii, cs.borderRadius, 1);
+      if (cs.mixBlendMode !== 'normal') bump(blend, cs.mixBlendMode, 1);
+      if (cs.backdropFilter && cs.backdropFilter !== 'none') backdrop++;
+      if (cs.filter !== 'none') filters++;
+      if (cs.display === 'grid' && cs.gridTemplateColumns !== 'none') bump(gridCols, cs.gridTemplateColumns.split(' ').length, 1);
+      if (r.width > 500 && r.width < vw - 40 && Math.abs(r.left - (vw - r.right)) < 4) bump(containerWidths, Math.round(r.width), 1);
+      if (cs.position === 'fixed' && r.width >= vw * 0.9 && r.height >= vh * 0.9 && cs.pointerEvents === 'none') {
+        overlays.push({ selector: cssPath(el), opacity: cs.opacity, blend: cs.mixBlendMode, bg: cs.backgroundImage.slice(0, 80) });
+      }
+    }
+    bump(bgs, effectiveBg(document.body), vw * vh);
+
+    // Top-level sections: descend through single wrappers (#app, main, smooth-scroll content…).
+    let root = document.body;
+    for (let d = 0; d < 6; d++) {
+      const kids = [...root.children].filter((c) => c.getBoundingClientRect().height > 10 && !/SCRIPT|STYLE/.test(c.tagName));
+      const big = kids.filter((c) => c.getBoundingClientRect().height > document.documentElement.scrollHeight * 0.85);
+      if (kids.length <= 3 && big.length === 1) root = big[0];
+      else break;
+    }
+    const sections = [...root.children]
+      .map((sec) => (sec.classList.contains('pin-spacer') && sec.firstElementChild ? [sec.firstElementChild, sec] : [sec, null]))
+      .filter(([sec]) => sec.getBoundingClientRect().height > 50 && !/SCRIPT|STYLE/.test(sec.tagName))
+      .map(([sec, spacer]) => {
+        const r = sec.getBoundingClientRect();
+        const cs = getComputedStyle(sec);
+        const words = (sec.innerText || '').split(/\s+/).filter(Boolean).length;
+        return {
+          selector: cssPath(sec),
+          top: Math.round(r.top + scrollY),
+          heightVh: Math.round((r.height / vh) * 100),
+          pinnedForVh: spacer ? Math.round(((spacer.getBoundingClientRect().height - r.height) / vh) * 100) : 0,
+          bg: effectiveBg(sec),
+          color: hex(cs.color),
+          display: cs.display,
+          paddingX: +((parseFloat(cs.paddingLeft) / vw) * 100).toFixed(1),
+          paddingY: +((parseFloat(cs.paddingTop) / vh) * 100).toFixed(1),
+          headings: sec.querySelectorAll('h1, h2, h3, h4').length,
+          media: sec.querySelectorAll('img, video, picture, canvas, svg').length,
+          words,
+          firstHeading: (sec.querySelector('h1, h2, h3') || {}).textContent?.trim().slice(0, 60) || '',
+        };
+      });
+
+    const media = [...document.querySelectorAll('img, video')].map((m) => m.getBoundingClientRect()).filter((r) => r.width > 100);
+    const ratios = new Map();
+    media.forEach((r) => bump(ratios, (r.width / r.height).toFixed(2), 1));
+    const cursorNone = getComputedStyle(document.documentElement).cursor === 'none' || getComputedStyle(document.body).cursor === 'none';
+
+    return {
+      viewport: { w: vw, h: vh },
+      fonts: {
+        families: top(families, 6).map(([family, c]) => ({ family, share: +(c / chars).toFixed(2) })),
+        loaded: [...new Set([...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family.replace(/["']/g, '')))],
+        scale: [...type.values()].sort((a, b) => b.size - a.size).slice(0, 14),
+        uppercaseShare: chars ? +(upper / chars).toFixed(2) : 0,
+      },
+      colors: {
+        backgrounds: top(bgs, 8).map(([c, a]) => ({ color: c, weight: a })),
+        text: top(textColors, 6).map(([c, w]) => ({ color: c, weight: w })),
+      },
+      layout: {
+        containerWidths: top(containerWidths, 3).map(([w, c]) => ({ px: w, vw: +((w / vw) * 100).toFixed(1), count: c })),
+        gridColumns: top(gridCols, 4).map(([cols, c]) => ({ cols, count: c })),
+        radii: top(radii, 4).map(([r, c]) => ({ radius: r, count: c })),
+        mediaRatios: top(ratios, 4).map(([r, c]) => ({ ratio: +r, count: c })),
+        mediaCount: media.length,
+      },
+      sections,
+      effects: {
+        blendModes: top(blend, 4).map(([m, c]) => ({ mode: m, count: c })),
+        backdropFilters: backdrop,
+        filters,
+        overlays,
+        customCursor: cursorNone,
+        pinSpacers: [...document.querySelectorAll('.pin-spacer')].map((sp) => ({
+          selector: cssPath(sp.firstElementChild || sp),
+          pinnedForVh: Math.round(((sp.getBoundingClientRect().height - (sp.firstElementChild || sp).getBoundingClientRect().height) / vh) * 100),
+        })),
+      },
+    };
+  }
+  window.__motionScene = scenography;
+
+  // Interactive elements visible in the first viewport, for the hover test.
+  window.__motionHoverTargets = (max) =>
+    [...document.querySelectorAll('a, button, [role="button"]')]
+      .filter((el) => {
+        const r = el.getBoundingClientRect();
+        return r.width > 20 && r.height > 12 && r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
+      })
+      .slice(0, max)
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { selector: cssPath(el), x: r.left + r.width / 2, y: r.top + r.height / 2, text: (el.textContent || '').trim().slice(0, 30) };
+      });
+
+  // ---- 7. Final dump, called by the extractor after scrolling ----
   function describeAnim(a) {
     if (!a) return null;
     if (a.getChildren) {
@@ -287,9 +502,11 @@
           text: it.text,
           firstSeen: it.firstSeen,
           animatedByGsap: !!it.el._gsap,
+          meta: it.el.isConnected ? meta(it.el) : null,
           rows: it.rows,
         })),
       calls: S.calls,
+      marks: S.marks,
       scrollTriggers,
       cssAnimations: S.cssAnimations,
       inlineScripts: [...document.querySelectorAll('script:not([src])')]

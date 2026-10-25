@@ -24,7 +24,7 @@ const server = http.createServer(async (req, res) => {
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
-const opts = { out: path.join(dir, 'out'), maxScroll: 6000, pause: 1800, intro: 3000, quiet: true };
+const opts = { out: path.join(dir, 'out'), maxScroll: 10000, pause: 1800, intro: 3000, quiet: true };
 
 let failures = 0;
 async function check(name, fn) {
@@ -78,6 +78,40 @@ for (const [page, r] of Object.entries(results)) {
   });
   await check(`${page}: marquee come loop`, () => {
     assert.ok(by('marquee', 'loop').length, 'loop non rilevato: ' + JSON.stringify(by('marquee').map((a) => a.kind)));
+  });
+}
+
+for (const [page, r] of Object.entries(results)) {
+  const { dna, scene } = r;
+  await check(`${page}: scena con regia titolo → testo → media e offset sovrapposti`, () => {
+    const sc = dna.scenes.find((s) => s.section.includes('story'));
+    assert.ok(sc, 'scena .story non trovata: ' + dna.scenes.map((s) => s.section).join(' | '));
+    assert.equal(sc.roleOrder, 'heading → text → media', sc.roleOrder);
+    const [h, p, m] = sc.beats;
+    assert.ok(h.count === 2 && h.reveal === 'mask-slide', `titolo: ${h.count} ${h.reveal}`);
+    // timeline: p starts at 1.08 - 0.6 = 0.48s, media 0.15s after p
+    assert.ok(Math.abs(p.offset - 480) < 90, `offset testo ${p.offset}`);
+    assert.ok(Math.abs(m.offset - p.offset - 150) < 60, `offset media ${m.offset}`);
+    assert.ok(/scale-down/.test(m.reveal), `reveal media ${m.reveal}`);
+    assert.ok(sc.overlap > 1, `overlap ${sc.overlap}`);
+  });
+  await check(`${page}: pin rilevato con la sua durata e cosa si muove dentro`, () => {
+    assert.ok(dna.pins.length === 1, `${dna.pins.length} pin`);
+    assert.ok(Math.abs(dna.pins[0].pinnedForVh - 150) < 10, `pin ${dna.pins[0].pinnedForVh}vh`);
+    assert.ok(dna.pins[0].scrubbedInside.length, 'niente scrub dentro il pin');
+  });
+  await check(`${page}: cursore personalizzato e hover CSS`, () => {
+    assert.ok(dna.interactions.cursor.some((c) => c.selector.includes('cursor')), 'cursore non rilevato');
+    assert.ok(dna.interactions.hover.some((h) => h.target.includes('btn') && h.effects.some((e) => e.via === 'css')), 'hover non rilevato');
+    assert.ok(dna.interactions.hover.every((h) => h.effects.every((e) => !String(e.element).includes('cursor'))), 'il cursore è finito tra gli hover');
+  });
+  await check(`${page}: scenografia (palette, tipografia, sezioni, parallax)`, () => {
+    assert.ok(scene.colors.backgrounds.some((c) => c.color === '#111111'), 'sfondo #111 mancante');
+    assert.ok(scene.colors.backgrounds.some((c) => c.color === '#ece6da'), 'sfondo .story mancante');
+    assert.ok(scene.fonts.scale[0].size > 100, 'titolo display non rilevato');
+    assert.ok(scene.sections.length >= 7, `${scene.sections.length} sezioni`);
+    assert.ok(dna.layers.some((l) => l.selector.includes('bg') && l.screenSpeed < 100), 'parallax .bg non tra i livelli (più lento dello scroll)');
+    assert.ok(dna.signature.eases.length && dna.signature.reveals.length, 'firma vuota');
   });
 }
 

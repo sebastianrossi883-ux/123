@@ -12,6 +12,7 @@ const urls = [];
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--no-video') opts.video = false;
+  else if (a === '--no-interaction') opts.interaction = false;
   else if (a === '--headed') opts.headed = true;
   else if (a === '--file') {
     const list = (await readFile(args[++i], 'utf8')).split('\n').map((l) => l.trim());

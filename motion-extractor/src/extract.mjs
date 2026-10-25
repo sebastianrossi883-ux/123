@@ -5,6 +5,9 @@ import path from 'node:path';
 import { scanScript, findSourceMapUrl, animationSourcesFromMap } from './static-scan.mjs';
 import { analyze, recreate } from './analyze.mjs';
 import { writeReport } from './report.mjs';
+import { choreography } from './choreography.mjs';
+import { writeVisualReport } from './visual-report.mjs';
+import { writeBrief } from './brief.mjs';
 
 const INJECT = fileURLToPath(new URL('./inject.js', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,6 +22,8 @@ export const DEFAULTS = {
   height: 900,
   video: true,
   headed: false,
+  interaction: true,
+  hoverTargets: 6,
 };
 
 function safeName(s) {
@@ -62,8 +67,28 @@ export async function extract(url, opts = {}) {
   await sleep(o.intro);
   await page.screenshot({ path: path.join(outDir, 'screens', '000-top.png') });
 
+  if (o.interaction) {
+    log('test mouse (cursore, parallax al mouse) e hover…');
+    await page.evaluate(() => window.__motionMark('mouse'));
+    for (let i = 0; i <= 60; i++) {
+      const a = (i / 60) * Math.PI * 2;
+      await page.mouse.move(o.width / 2 + Math.cos(a) * o.width * 0.3, o.height / 2 + Math.sin(a) * o.height * 0.3);
+      await sleep(25);
+    }
+    await sleep(800);
+    const targets = await page.evaluate((n) => window.__motionHoverTargets(n), o.hoverTargets);
+    for (const h of targets) {
+      await page.evaluate((sel) => window.__motionMark('hover', sel), h.selector);
+      await page.mouse.move(h.x, h.y, { steps: 5 });
+      await sleep(700);
+    }
+  }
+  await page.evaluate(() => window.__motionMark('settle'));
+  await page.mouse.move(o.width / 2, o.height / 2, { steps: 5 });
+  await sleep(800);
+
   log('scroll a step (con rotella, così funziona anche con Lenis)…');
-  await page.mouse.move(o.width / 2, o.height / 2);
+  await page.evaluate(() => window.__motionMark('scroll'));
   let scrolled = 0;
   let stuck = 0;
   let shot = 1;
@@ -85,6 +110,7 @@ export async function extract(url, opts = {}) {
 
   log('raccolgo i dati registrati…');
   const dump = await page.evaluate(() => window.__motionDump());
+  const scene = await page.evaluate(() => window.__motionScene());
 
   // Static analysis of every script + source maps (original code, when published).
   const snippets = [];
@@ -127,6 +153,10 @@ export async function extract(url, opts = {}) {
   const result = analyze(dump);
   const code = recreate(result);
   const { inlineScripts, ...dumpRest } = dump;
+  const dna = choreography(result, dumpRest, scene);
+  await writeFile(path.join(outDir, 'dna.json'), JSON.stringify({ url, scene, ...dna }, null, 2));
+  await writeVisualReport(outDir, { url, title: dump.title, scene, dna });
+  await writeBrief(outDir, { url, title: dump.title, scene, dna });
 
   await writeFile(path.join(outDir, 'raw-dump.json'), JSON.stringify(dumpRest));
   await writeFile(path.join(outDir, 'recreated.js'), code);
@@ -136,7 +166,7 @@ export async function extract(url, opts = {}) {
   );
   await writeReport(outDir, { url, opts: o, dump: dumpRest, result, snippets: uniqueSnippets, sourceFiles, scriptList });
   log(`fatto → ${path.join(outDir, 'report.md')}`);
-  return { outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest };
+  return { outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
 }
 
 async function ensure(dir, sub) {

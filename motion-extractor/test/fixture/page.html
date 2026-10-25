@@ -18,6 +18,16 @@
   .reveal { height: 70vh; background: linear-gradient(90deg, #c33, #36c); }
   .marquee { overflow: hidden; white-space: nowrap; font-size: 6vw; padding: 4vh 0; }
   .marquee-track { display: inline-block; }
+  .btn { display: inline-block; margin-top: 4vh; padding: 14px 28px; border-radius: 99px; background: #e4572e; color: #fff; text-decoration: none; transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+  .btn:hover { transform: scale(1.08); }
+  .story { display: grid; grid-template-columns: 1fr 1fr; gap: 4vw; align-items: center; background: #ece6da; color: #111; }
+  .story h2 { font-size: 5vw; line-height: 1; margin: 0 0 3vh; }
+  .story p { font-size: 18px; line-height: 1.5; max-width: 40ch; }
+  .story .media { height: 70vh; border-radius: 12px; background: linear-gradient(160deg, #2d6a4f, #95d5b2); }
+  .pinned { height: 100vh; overflow: hidden; padding: 0; }
+  .pinned .panel { width: 250vw; height: 100%; display: flex; gap: 4vw; padding: 15vh 8vw; box-sizing: border-box; }
+  .pinned .panel div { flex: 0 0 50vw; background: #333; border-radius: 12px; }
+  .cursor { position: fixed; top: 0; left: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: #fff; mix-blend-mode: difference; pointer-events: none; z-index: 10; }
 </style>
 </head>
 <body>
@@ -25,12 +35,19 @@
     <span class="line"><span>Motion</span></span>
     <span class="line"><span>che si</span></span>
     <span class="line"><span>ricorda</span></span>
-  </h1></section>
+  </h1><a class="btn" href="#contatti">Scopri</a></section>
   <div class="marquee"><div class="marquee-track">GSAP · Lenis · ScrollTrigger · GSAP · Lenis · ScrollTrigger · </div></div>
   <section class="cards"><div class="card"></div><div class="card"></div><div class="card"></div><div class="card"></div></section>
   <section class="parallax"><div class="bg"></div></section>
   <section><div class="reveal"></div></section>
+  <section class="story">
+    <div><h2><span class="line"><span>Una scena</span></span><span class="line"><span>con regia</span></span></h2>
+    <p>Prima il titolo, poi il testo che si sovrappone, infine l'immagine che si ridimensiona.</p></div>
+    <div class="media"></div>
+  </section>
+  <section class="pinned"><div class="panel"><div></div><div></div><div></div><div></div></div></section>
   <section><p>Fine.</p></section>
+  <div class="cursor"></div>
   __SCRIPTS__
 </body>
 </html>
