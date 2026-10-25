@@ -210,7 +210,7 @@ async function extractWith(browser, url, o) {
       for (const f of animationSourcesFromMap(map)) {
         const rel = safeName(f.path.replace(/^webpack:\/\/\/?|^\.\//, ''));
         await writeFile(path.join(await ensure(outDir, 'sources'), rel), f.body);
-        sourceFiles.push({ map: mapUrl.startsWith('data:') ? `${src} (inline)` : mapUrl, path: f.path, saved: `sources/${rel}` });
+        sourceFiles.push({ map: mapUrl.startsWith('data:') ? `${src} (inline)` : mapUrl, path: f.path, saved: `sources/${rel}`, body: f.body });
       }
     } catch {
       // map not published or not JSON: nothing to recover
@@ -236,7 +236,8 @@ async function extractWith(browser, url, o) {
   await writeSpec(outDir, { url, title: dump.title, dump: dumpRest, scene, result });
   const kit = await writeKit(outDir, { url, title: dump.title, result, dna, scene, snippets: uniqueSnippets, libs: dump.libs, hoverDiffs: dump.hovers });
   run.lenisOptions = kit.lenisFromCode;
-  const quality = assess({ run, dump: dumpRest, result, dna });
+  const codeTexts = [...uniqueSnippets.map((s) => s.code), ...dump.inlineScripts, ...sourceFiles.map((f) => f.body || '')];
+  const quality = assess({ run, dump: dumpRest, result, dna, kit, codeTexts });
   await writeQuality(outDir, quality, url);
 
   await writeFile(path.join(outDir, 'raw-dump.json'), JSON.stringify(dumpRest));

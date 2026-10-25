@@ -358,3 +358,79 @@ export function verifyMarkdown(v, { url, kitPath }) {
 export async function exists(p) {
   try { await stat(p); return true; } catch { return false; }
 }
+
+// ---------- batch report ----------
+// One page for a whole batch: how many DNAs are usable, and which problems repeat across sites
+// (so they get fixed once in the tool, not looked at site by site).
+export async function batchReport(root) {
+  const sites = [];
+  for await (const kitPath of walk(root)) {
+    const dir = path.dirname(kitPath);
+    let q = null;
+    try { q = JSON.parse(await readFile(path.join(dir, 'quality.json'), 'utf8')); } catch { continue; }
+    const kit = JSON.parse(await readFile(kitPath, 'utf8'));
+    sites.push({ url: kit.source, folder: path.relative(root, dir), q });
+  }
+  let index = [];
+  try {
+    const lines = (await readFile(path.join(root, 'index.csv'), 'utf8')).trim().split('\n').slice(1);
+    index = lines.map((l) => l.split(','));
+  } catch {}
+  const errors = index.filter((r) => r[1] === 'errore');
+  const empty = index.filter((r) => r[1] === 'vuoto');
+  const secs = index.filter((r) => r[1] === 'ok').map((r) => +r[2]).filter((x) => x > 0);
+  const byLevel = { alta: [], media: [], bassa: [] };
+  for (const s of sites) byLevel[s.q.level].push(s);
+  // same problem on many sites = a gap in the tool: group warnings by their text without numbers
+  const kinds = new Map();
+  for (const s of sites) {
+    for (const i of s.q.issues.filter((x) => x.severity !== 'info')) {
+      const key = i.severity + ' · ' + i.text.replace(/\d+([.,]\d+)?/g, '#').replace(/\(.*$/, '').replace(/«.*$/, '').trim();
+      if (!kinds.has(key)) kinds.set(key, []);
+      kinds.get(key).push(s);
+    }
+  }
+  const exactShare = sites.filter((s) => s.q.facts.entrances).map((s) => s.q.facts.exact / s.q.facts.entrances);
+  const cross = sites.filter((s) => s.q.facts.crossCheck);
+  const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+  const L = [
+    '# Riepilogo del lotto',
+    '',
+    `| | siti |`,
+    '|---|---|',
+    `| analizzati | ${sites.length} |`,
+    `| affidabilità **alta** (usabili nei mix) | ${byLevel.alta.length} (${pct(byLevel.alta.length, sites.length)}%) |`,
+    `| affidabilità media (leggi gli avvisi) | ${byLevel.media.length} |`,
+    `| affidabilità bassa (esclusi dai mix) | ${byLevel.bassa.length} |`,
+    `| vuoti (niente movimento: anti-bot? cookie?) | ${empty.length} |`,
+    `| errori (irraggiungibili, timeout) | ${errors.length} |`,
+    '',
+    `Tempo per sito: mediana ${secs.length ? secs.sort((a, b) => a - b)[Math.floor(secs.length / 2)] : '—'}s · totale ${Math.round(secs.reduce((a, b) => a + b, 0) / 60)} min (prima del parallelismo).`,
+    `Entrate con easing esatto (dal codice del sito): mediana ${exactShare.length ? Math.round(exactShare.sort((a, b) => a - b)[Math.floor(exactShare.length / 2)] * 100) : 0}%.`,
+    `Confronto col codice del sito possibile su ${cross.length} siti; easing del kit confermati dal codice: ${pct(cross.reduce((a, s) => a + s.q.facts.crossCheck.confirmed.length, 0), cross.reduce((a, s) => a + s.q.facts.crossCheck.kitEases.length, 0))}%.`,
+    '',
+    '## Problemi che si ripetono',
+    '',
+    'Un problema su tanti siti è un limite dello strumento: va corretto lì, non sito per sito.',
+    '',
+    ...[...kinds]
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([k, list]) => `- **${list.length} siti** — ${k}\n  ${list.slice(0, 6).map((s) => s.url).join(', ')}${list.length > 6 ? ', …' : ''}`),
+    '',
+    '## Errori e vuoti',
+    '',
+    ...[...errors, ...empty].slice(0, 50).map((r) => `- ${r[0]} — ${r[1]}${r[7] ? `: ${r[7]}` : ''}`),
+    '',
+    '## Da controllare a mano (campione)',
+    '',
+    'Pochi siti "alta" scelti a caso: aprine `dna.html` e il video per una verifica a campione.',
+    '',
+    ...byLevel.alta
+      .map((s) => [s, (s.url.length * 7919) % 97])
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, Math.max(3, Math.ceil(byLevel.alta.length * 0.03)))
+      .map(([s]) => `- ${s.url} → \`${s.folder}/dna.html\``),
+  ];
+  await writeFile(path.join(root, 'riepilogo-lotto.md'), L.join('\n') + '\n');
+  return { sites: sites.length, alta: byLevel.alta.length, media: byLevel.media.length, bassa: byLevel.bassa.length, errors: errors.length, empty: empty.length };
+}

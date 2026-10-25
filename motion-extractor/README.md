@@ -63,10 +63,18 @@ le sue misure con quello che il sito rivela di sé e con quello che sa di non po
 | effetti WebGL (non misurabili) | 🟠 media |
 | curve stimate con scarto alto | 🟠 media |
 | quante entrate hanno easing esatto (dal codice) e quante stimato | ℹ️ |
+| **confronto col codice del sito**: gli easing del kit sono scritti nel codice? | 🟠 media se più della metà no |
 
 Livello `alta` (≥80/100), `media` (≥55), `bassa`. **I DNA `bassa` non entrano mai nei mix**
 (`--include-low` per forzarli). Nota: una copia scaricata del sito può risultare peggiore
 dell'originale online, perché gli script da CDN non si caricano (lo strumento lo segnala).
+
+### Riepilogo del lotto
+
+Alla fine di ogni lotto (o con `node src/dna.mjs report out`) viene scritto `out/riepilogo-lotto.md`:
+quanti DNA sono usabili, tempo per sito, quota di easing esatti e confermati dal codice, e i
+**problemi che si ripetono** raggruppati (un problema su tanti siti è un limite dello strumento da
+correggere una volta sola), più un piccolo campione casuale di siti da guardare a mano.
 
 ## Siti unici: catalogo, mix, verifica
 

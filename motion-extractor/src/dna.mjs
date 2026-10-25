@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // DNA tools for many sites:
 //   node src/dna.mjs catalog [out]                         → out/catalog.json + out/catalog.html
+//   node src/dna.mjs report [out]                          → out/riepilogo-lotto.md (quanti usabili, problemi ricorrenti)
 //   node src/dna.mjs blend --mood elegante --name studio   → blends/studio/ (motion-kit.js, per-ia.md, provenienza.md)
 //        [--seed 42] [--from sitoA,sitoB,sitoC] [--catalog out/catalog.json] [--out blends] [--min-distance 0.08]
 //   node src/dna.mjs verify <url> --kit blends/studio/kit.json [--fast]
 //        → misura il sito animato e controlla che si muova come il suo DNA (exit 1 sotto l'80%)
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { buildCatalog, catalogHtml, blend, writeBlend, verify, verifyMarkdown, MOODS } from './dna-tools.mjs';
+import { buildCatalog, catalogHtml, blend, writeBlend, verify, verifyMarkdown, MOODS, batchReport } from './dna-tools.mjs';
 import { extract } from './extract.mjs';
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -23,6 +24,10 @@ if (cmd === 'catalog') {
   await writeFile(path.join(root, 'catalog.json'), JSON.stringify(cat, null, 2));
   await writeFile(path.join(root, 'catalog.html'), catalogHtml(cat));
   console.log(`${cat.count} DNA nel catalogo → ${path.join(root, 'catalog.html')}`);
+} else if (cmd === 'report') {
+  const root = path.resolve(positional[0] || 'out');
+  const r = await batchReport(root);
+  console.log(`${r.sites} siti: ${r.alta} alta, ${r.media} media, ${r.bassa} bassa, ${r.empty} vuoti, ${r.errors} errori → ${path.join(root, 'riepilogo-lotto.md')}`);
 } else if (cmd === 'blend') {
   const name = flag('--name', 'mix');
   const catalogPath = path.resolve(flag('--catalog', 'out/catalog.json'));

@@ -90,5 +90,9 @@ async function worker() {
   }
 }
 await Promise.all(Array.from({ length: Math.min(parallel, todo.length) }, worker));
-if (todo.length > 1) console.log(`${todo.length - failed}/${todo.length} siti in ${Math.round((Date.now() - started) / 1000)}s · riepilogo in ${indexFile}`);
+if (todo.length > 1) {
+  const { batchReport } = await import('./dna-tools.mjs');
+  const r = await batchReport(outRoot);
+  console.log(`${todo.length - failed}/${todo.length} siti in ${Math.round((Date.now() - started) / 1000)}s · affidabilità: ${r.alta} alta, ${r.media} media, ${r.bassa} bassa → ${path.join(outRoot, 'riepilogo-lotto.md')}`);
+}
 process.exitCode = failed ? 1 : 0;

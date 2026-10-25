@@ -94,6 +94,8 @@ jobs:
           head -n 1 "$(ls out/index-*.csv | head -n 1)" > out/index.csv
           for f in out/index-*.csv; do tail -n +2 "$f" >> out/index.csv; done
           node src/dna.mjs catalog out
+          node src/dna.mjs report out
+          cat out/riepilogo-lotto.md >> "$GITHUB_STEP_SUMMARY"
           echo "### Esito" >> "$GITHUB_STEP_SUMMARY"
           awk -F, 'NR>1{c[$2]++} END{for (s in c) print "- " s ": " c[s]}' out/index.csv >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4

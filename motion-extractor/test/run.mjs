@@ -275,6 +275,25 @@ await check('virtual: scroll di un contenitore (senza window.scrollY)', () => {
   });
 }
 
+for (const [page, r] of mainResults()) {
+  await check(`${page}: confronto automatico col codice del sito`, () => {
+    const cc = r.quality.facts.crossCheck;
+    assert.ok(cc, 'confronto col codice non fatto');
+    for (const e of ['power3.out', 'expo.out', 'power2.out']) assert.ok(cc.confirmed.includes(e), `${e} non confermato: ${JSON.stringify(cc)}`);
+    assert.ok(cc.notInCode.length <= 1, 'easing del kit non presenti nel codice: ' + cc.notInCode.join(', '));
+  });
+}
+{
+  const { batchReport } = await import('../src/dna-tools.mjs');
+  const rep = await batchReport(opts.out);
+  const text = await readFile(path.join(opts.out, 'riepilogo-lotto.md'), 'utf8');
+  await check('riepilogo del lotto: conta i siti e raggruppa i problemi ricorrenti', () => {
+    assert.ok(rep.sites >= 5, `${rep.sites} siti`);
+    assert.ok(rep.alta >= 3, `${rep.alta} siti ad alta affidabilità`);
+    assert.ok(/## Problemi che si ripetono/.test(text) && /\*\*\d+ siti\*\* — media · .*WebGL/.test(text), 'avviso WebGL non raggruppato tra i problemi ricorrenti');
+  });
+}
+
 await check('bundled: snippet leggibili dal bundle minificato', () => {
   const code = results.bundled.snippets.map((s) => s.code).join('\n');
   for (const needle of ['scrollTrigger', '"expo.out"', 'scrub: 1', 'M0,0 C0.7,0 0.2,1 1,1', 'lerp: .08']) {

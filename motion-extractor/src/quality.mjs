@@ -10,7 +10,20 @@ const median = (xs) => {
   return s.length ? s[Math.floor(s.length / 2)] : null;
 };
 
-export function assess({ run, dump, result, dna }) {
+// Ease names and durations written in the site's own code (what I checked by hand on the first
+// real sites): `ease: "power4.out"`, `duration: .8`, `transition: … cubic-bezier(…)`.
+export function codeTimings(texts) {
+  const eases = new Set();
+  const durations = new Set();
+  for (const t of texts) {
+    if (!t) continue;
+    for (const m of t.matchAll(/\bease\s*:\s*["'`]([\w.]+(?:\([\d.,\s]*\))?)["'`]/g)) eases.add(m[1]);
+    for (const m of t.matchAll(/\bduration\s*:\s*(\d*\.?\d+)/g)) durations.add(+m[1]);
+  }
+  return { eases, durations };
+}
+
+export function assess({ run, dump, result, dna, kit, codeTexts = [] }) {
   const issues = [];
   const add = (severity, text) => issues.push({ severity, text });
   const libs = dump.libs;
@@ -57,6 +70,20 @@ export function assess({ run, dump, result, dna }) {
     }
     if (fitErr != null && fitErr > 0.04) add('media', `le curve stimate hanno uno scarto alto (${Math.round(fitErr * 1000) / 10}%): nel kit diventano CustomEase misurate, controlla il video`);
   }
+  // cross-check with the site's own code: every named ease the kit uses should be written there
+  const code = codeTimings(codeTexts);
+  const kitEases = kit ? [...new Set(Object.values(kit.presets).map((p) => p.ease).filter((e) => !/^kit-/.test(e)))] : [];
+  let crossCheck = null;
+  if (code.eases.size >= 2 && kitEases.length) {
+    const base = (e) => String(e).replace(/\(.*$/, '');
+    const inCode = kitEases.filter((e) => code.eases.has(e) || [...code.eases].some((c) => base(c) === base(e)));
+    const missing = kitEases.filter((e) => !inCode.includes(e));
+    crossCheck = { codeEases: [...code.eases], kitEases, confirmed: inCode, notInCode: missing };
+    if (missing.length > kitEases.length / 2) add('media', `easing del kit non presenti nel codice del sito: ${missing.join(', ')} (stimati male o animazioni CSS)`);
+    else add('info', `confronto col codice del sito: ${inCode.length}/${kitEases.length} easing del kit sono scritti nel codice (${inCode.join(', ')})`);
+  } else if (code.eases.size < 2 && libs.gsapVersions) {
+    add('info', 'codice delle animazioni non leggibile (minificato a fondo o caricato a parte): nessun confronto col codice possibile');
+  }
   if ((libs.lenisVersion || libs.lenisHtmlClass) && run.lenisOptions === 0) add('info', 'Lenis presente ma le sue opzioni non sono nel codice leggibile: nel kit uso i valori di default');
   if (!run.hoveredKinds) add('info', 'nessun link o bottone trovato per il test di hover');
 
@@ -78,6 +105,7 @@ export function assess({ run, dump, result, dna }) {
       hoveredKinds: run.hoveredKinds,
       pageErrors: run.pageErrors.length,
       reachedEnd: run.reachedEnd,
+      crossCheck,
     },
   };
 }
