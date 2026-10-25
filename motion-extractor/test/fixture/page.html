@@ -34,6 +34,14 @@
   .chars span { display: inline-block; }
   .css-in { opacity: 0; transform: translateY(60px); transition: opacity .9s cubic-bezier(.16,1,.3,1), transform .9s cubic-bezier(.16,1,.3,1); padding: 4vh; background: #222; border-radius: 12px; }
   .css-in.is-in { opacity: 1; transform: none; }
+  .roll-link { display: inline-flex; flex-direction: column; height: 1.2em; overflow: hidden; font-size: 28px; color: #eee; text-decoration: none; line-height: 1.2; }
+  .roll-layer { display: block; white-space: nowrap; }
+  .roll-layer span { display: inline-block; }
+  .roll-layer + .roll-layer { margin-top: -1.2em; }
+  .vmarquee { overflow: hidden; white-space: nowrap; font-size: 4vw; padding: 3vh 0; }
+  .vmarquee-track { display: inline-block; width: 2000px; }
+  .spin { display: inline-block; width: 40px; height: 40px; background: #e4572e; animation: spin 4s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .cursor { position: fixed; top: 0; left: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: #fff; mix-blend-mode: difference; pointer-events: none; z-index: 10; }
 </style>
 </head>
@@ -59,8 +67,16 @@
     <h2 class="chars"></h2>
     <div class="css-in">Entro con una transizione CSS quando ricevo la classe .is-in</div>
   </section>
-  <section><p>Fine.</p></section>
+  <div class="vmarquee"><div class="vmarquee-track">Studio · Motion · Studio · Motion · Studio · Motion ·</div></div>
+  <section class="outro">
+    <a class="roll-link" href="#mail"><span class="roll-layer"></span><span class="roll-layer"></span></a>
+    <span class="spin"></span>
+    <canvas class="gl" width="64" height="64"></canvas>
+    <p>Fine.</p>
+  </section>
   <script>
+    document.querySelectorAll('.roll-layer').forEach((l) => (l.innerHTML = [...'Scrivici ora'].map((c) => '<span>' + (c === ' ' ? '&nbsp;' : c) + '</span>').join('')));
+    document.querySelector('.gl').getContext('webgl');
     document.querySelector('.chars').innerHTML = [...'Caratteri divisi uno per uno'].map((c) => '<span>' + (c === ' ' ? '&nbsp;' : c) + '</span>').join('');
     new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && e.target.classList.add('is-in')), { threshold: 0.3 })
       .observe(document.querySelector('.css-in'));

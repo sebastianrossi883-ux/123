@@ -70,6 +70,8 @@ export async function buildCatalog(root) {
     const kit = JSON.parse(await readFile(kitPath, 'utf8'));
     let dna = null;
     try { dna = JSON.parse(await readFile(path.join(dir, 'dna.json'), 'utf8')); } catch {}
+    let quality = null;
+    try { quality = JSON.parse(await readFile(path.join(dir, 'quality.json'), 'utf8')); } catch {}
     const sig = dna ? dna.signature : {};
     const extras = dna
       ? { overlap: sig.overlapMedian, scrollShare: sig.scrollLinkedShare, pins: dna.pins.length, loops: sig.loops, parallaxLayers: sig.parallaxLayers }
@@ -78,6 +80,7 @@ export async function buildCatalog(root) {
       url: kit.source,
       folder: path.relative(root, dir),
       blend: !!kit.blend,
+      quality: quality ? { level: quality.level, score: quality.score } : null,
       fingerprint: fingerprint(kit, extras),
       extras,
       summary: {
@@ -173,10 +176,11 @@ function mutate(kit, rand, amp) {
   return kit;
 }
 
-export async function blend({ catalogPath, mood, seed = Date.now() % 100000, from = [], name = 'mix', minDistance = 0.08 }) {
+export async function blend({ catalogPath, mood, seed = Date.now() % 100000, from = [], name = 'mix', minDistance = 0.08, includeLow = false }) {
   const cat = JSON.parse(await readFile(catalogPath, 'utf8'));
   const root = path.dirname(catalogPath);
-  const sources = cat.entries.filter((e) => !e.blend);
+  // DNAs flagged as unreliable never feed a mix, unless asked
+  const sources = cat.entries.filter((e) => !e.blend && (includeLow || !e.quality || e.quality.level !== 'bassa'));
   if (sources.length < 2) throw new Error('servono almeno 2 siti nel catalogo');
   const rand = rng(seed);
   const target = mood ? MOODS[mood] : null;
@@ -221,6 +225,7 @@ export async function blend({ catalogPath, mood, seed = Date.now() % 100000, fro
     Object.assign(child, { scene: clone(B.scene), single: clone(B.single), intro: clone(B.intro) });
     Object.assign(child, { parallax: clone(C.parallax), pin: clone(C.pin), marquee: clone(C.marquee), cursor: clone(C.cursor), lenis: clone(C.lenis || A.lenis) });
     child.hovers = clone(C.hovers.length ? C.hovers : A.hovers);
+    child.letterHovers = clone((C.letterHovers || []).length ? C.letterHovers : A.letterHovers || []);
     for (const h of child.hovers) {
       const src = (C.hovers.length ? C : A).customEases || {};
       if (src[h.ease]) child.customEases[h.ease] = src[h.ease];

@@ -211,9 +211,13 @@
     document.querySelectorAll('[data-hover]').forEach((el) => {
       const h = (DNA.hovers || []).find((x) => x.name === el.dataset.hover) || (DNA.hovers || [])[0];
       if (!h) return warn('nessun hover misurato nel sito d’origine', el);
-      const back = Object.fromEntries(Object.keys(h.to).map((k) => [k, gsap.getProperty(el, k)]));
-      el.addEventListener('mouseenter', () => gsap.to(el, { ...h.to, duration: h.duration, ease: easeOf(h.ease), overwrite: 'auto' }));
-      el.addEventListener('mouseleave', () => gsap.to(el, { ...back, duration: h.duration, ease: easeOf(h.ease), overwrite: 'auto' }));
+      // the element itself plus the children that move with it (e.g. an arrow sliding 3px)
+      const parts = [{ els: [el], to: h.to }, ...(h.children || []).map((c) => ({ els: [...el.querySelectorAll(c.query)], to: c.to }))]
+        .filter((p) => p.els.length && Object.keys(p.to).length)
+        .map((p) => ({ ...p, back: Object.fromEntries(Object.keys(p.to).map((k) => [k, gsap.getProperty(p.els[0], k)])) }));
+      const run = (key) => parts.forEach((p) => gsap.to(p.els, { ...p[key], duration: h.duration, ease: easeOf(h.ease), overwrite: 'auto' }));
+      el.addEventListener('mouseenter', () => run('to'));
+      el.addEventListener('mouseleave', () => run('back'));
     });
 
     ScrollTrigger.refresh();

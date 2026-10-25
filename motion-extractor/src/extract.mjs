@@ -10,6 +10,7 @@ import { writeVisualReport } from './visual-report.mjs';
 import { writeBrief } from './brief.mjs';
 import { writeSpec } from './spec.mjs';
 import { writeKit } from './kit.mjs';
+import { assess, writeQuality } from './quality.mjs';
 
 const INJECT = fileURLToPath(new URL('./inject.js', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -74,6 +75,12 @@ async function extractWith(browser, url, o) {
   await context.addInitScript({ path: INJECT });
   const page = await context.newPage();
 
+  const run = { pageErrors: [], scriptFailures: [], otherFailures: 0, reachedEnd: false, scrolled: 0, hoveredKinds: 0, lenisOptions: 0 };
+  page.on('pageerror', (e) => run.pageErrors.push(String(e.message || e)));
+  page.on('requestfailed', (req) => {
+    if (['script', 'stylesheet'].includes(req.resourceType())) run.scriptFailures.push(req.url().split('?')[0].slice(-60));
+    else run.otherFailures++;
+  });
   const scripts = new Map();
   page.on('response', (res) => {
     const type = res.request().resourceType();
@@ -133,9 +140,9 @@ async function extractWith(browser, url, o) {
   });
   const probe = () =>
     page.evaluate(() => [Math.round(window.scrollY), ...window.__motionProbeEls.map((e) => Math.round(e.getBoundingClientRect().top))].join(','));
-  // Steps grow through stretches where nothing but the scroll moves (up to 1.5 screens) and go
-  // back to `step` as soon as something animates, so empty parts of a page cost little time.
-  let stepSize = o.step;
+  // Constant step size: a bigger step would cross a pinned/scrubbed section with too few samples.
+  // Time is saved on the pauses instead (they end as soon as the page is still).
+  const stepSize = o.step;
   let emptySteps = 0;
   let stepIndex = 0;
   while (scrolled < o.maxScroll && stuck < 2) {
@@ -159,7 +166,6 @@ async function extractWith(browser, url, o) {
     stuck = after === before ? stuck + 1 : 0;
     scrolled += stepSize;
     emptySteps = active ? 0 : emptySteps + 1;
-    stepSize = active ? o.step : Math.min(o.step * (1 + emptySteps), Math.round(o.height * 1.5));
     // Hover also further down the page (footer links, cards…): two new kinds every three steps.
     if (o.interaction && stepIndex++ % 3 === 2) {
       const more = await page.evaluate(([skip]) => window.__motionHoverTargets(2, skip), [hoveredKinds]);
@@ -176,6 +182,9 @@ async function extractWith(browser, url, o) {
     }
   }
 
+  run.reachedEnd = stuck >= 2;
+  run.scrolled = scrolled;
+  run.hoveredKinds = hoveredKinds.length;
   log('raccolgo i dati registrati…');
   const dump = await page.evaluate(() => window.__motionDump());
   const scene = await page.evaluate(() => window.__motionScene());
@@ -225,7 +234,10 @@ async function extractWith(browser, url, o) {
   await writeVisualReport(outDir, { url, title: dump.title, scene, dna });
   await writeBrief(outDir, { url, title: dump.title, scene, dna });
   await writeSpec(outDir, { url, title: dump.title, dump: dumpRest, scene, result });
-  const kit = await writeKit(outDir, { url, title: dump.title, result, dna, scene, snippets: uniqueSnippets, libs: dump.libs });
+  const kit = await writeKit(outDir, { url, title: dump.title, result, dna, scene, snippets: uniqueSnippets, libs: dump.libs, hoverDiffs: dump.hovers });
+  run.lenisOptions = kit.lenisFromCode;
+  const quality = assess({ run, dump: dumpRest, result, dna });
+  await writeQuality(outDir, quality, url);
 
   await writeFile(path.join(outDir, 'raw-dump.json'), JSON.stringify(dumpRest));
   await writeFile(path.join(outDir, 'recreated.js'), code);
@@ -235,8 +247,9 @@ async function extractWith(browser, url, o) {
   );
   await writeReport(outDir, { url, opts: o, dump: dumpRest, result, snippets: uniqueSnippets, sourceFiles, scriptList });
   const seconds = Math.round((Date.now() - started) / 1000);
-  log(`fatto in ${seconds}s → ${path.join(outDir, 'spec.md')}`);
-  return { seconds, kit, outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
+  log(`fatto in ${seconds}s · affidabilità ${quality.level} (${quality.score}/100) → ${path.join(outDir, 'spec.md')}`);
+  for (const i of quality.issues.filter((x) => x.severity !== 'info')) log(`  ${i.severity === 'alta' ? '✗' : '⚠'} ${i.text}`);
+  return { seconds, kit, quality, outDir, result, snippets: uniqueSnippets, sourceFiles, dump: dumpRest, scene, dna };
 }
 
 async function hoverAll(page, targets, hoveredKinds) {
@@ -244,9 +257,14 @@ async function hoverAll(page, targets, hoveredKinds) {
     hoveredKinds.push(h.kind);
     await page.evaluate((sel) => window.__motionTrack(sel), h.selector);
     await sleep(80);
+    await page.evaluate((sel) => window.__motionHoverBegin(sel), h.selector);
     await page.evaluate((sel) => window.__motionMark('hover', sel), h.selector);
     await page.mouse.move(h.x, h.y, { steps: 5 });
-    await sleep(700);
+    // wait for the hover transition to finish (some last 1.4s), up to 2s
+    const t0 = Date.now();
+    await sleep(500);
+    while (Date.now() - t0 < 2000 && (await page.evaluate(() => window.__motionQuiet([]))) < 400) await sleep(100);
+    await page.evaluate(() => window.__motionHoverEnd());
   }
 }
 

@@ -38,7 +38,28 @@ export function run({ gsap, ScrollTrigger, CustomEase, Lenis }) {
 
   // Pinned section with a scrubbed horizontal panel.
   gsap.timeline({ scrollTrigger: { trigger: '.pinned', start: 'top top', end: '+=150%', pin: true, scrub: true } })
-    .to('.pinned .panel', { xPercent: -60, ease: 'none' });
+    .to('.pinned .panel', { xPercent: -60, ease: 'none' })
+    // pieces of the scrubbed timeline that jump while scrolling (not entrances)
+    .to('.pinned .panel div:nth-child(2)', { opacity: 0.3, duration: 0.1 }, 0.3)
+    .to('.pinned .panel div:nth-child(3)', { opacity: 0.3, duration: 0.1 }, 0.6);
+
+  // Link whose letters roll on hover (two stacked copies), far down the page.
+  document.querySelectorAll('.roll-link').forEach((link) => {
+    const [cur, hov] = link.querySelectorAll('.roll-layer');
+    gsap.set(hov.children, { yPercent: 110 });
+    const tl = gsap.timeline({ paused: true, defaults: { duration: 0.45, ease: 'power3.inOut', stagger: 0.018 } })
+      .to(cur.children, { yPercent: -110 }, 0)
+      .to(hov.children, { yPercent: 0 }, 0.04);
+    link.addEventListener('mouseenter', () => tl.play());
+    link.addEventListener('mouseleave', () => tl.reverse());
+  });
+
+  // Marquee that runs on its own and speeds up with the scroll velocity.
+  const vm = gsap.to('.vmarquee-track', { x: -1000, duration: 10, ease: 'none', repeat: -1 });
+  ScrollTrigger.create({
+    trigger: '.vmarquee', start: 'top bottom', end: 'bottom top',
+    onUpdate: (self) => gsap.to(vm, { timeScale: 1 + Math.min(4, Math.abs(self.getVelocity()) / 400), duration: 0.2, overwrite: true, onComplete: () => gsap.to(vm, { timeScale: 1, duration: 0.8 }) }),
+  });
 
   // Custom cursor following the mouse.
   const cx = gsap.quickTo('.cursor', 'x', { duration: 0.4, ease: 'power3' });

@@ -170,6 +170,26 @@ for (const [page, r] of mainResults()) {
     assert.ok(Math.abs(css.duration - 900) < 120, `durata transizione ${css.duration}`);
   });
 }
+for (const [page, r] of mainResults()) {
+  const { dna, result, quality } = r;
+  await check(`${page}: casi trovati sui siti veri (hover a lettere, marquee veloce, loop CSS, scrub, WebGL)`, () => {
+    const roll = dna.interactions.hover.find((h) => h.target.includes('roll-link'));
+    assert.ok(roll, 'hover del link in fondo alla pagina non provato: ' + dna.interactions.hover.map((h) => h.target).join(' | '));
+    const letters = roll.effects.find((e) => e.count >= 8);
+    assert.ok(letters, 'lettere dell’hover non raggruppate: ' + JSON.stringify(roll.effects.map((e) => [e.count, e.stagger])));
+    assert.ok(Math.abs(letters.stagger - 0.018) < 0.007, `stagger hover ${letters.stagger}`);
+    assert.ok(Math.abs(letters.duration - 450) < 90, `durata hover ${letters.duration}`);
+    const vm = dna.loops.find((l) => String(l.selector).includes('vmarquee'));
+    assert.ok(vm && Math.abs(vm.speedPerSecond) > 70 && Math.abs(vm.speedPerSecond) < 200, `marquee veloce ${vm && vm.speedPerSecond}`);
+    const spin = dna.loops.find((l) => l.source === 'css' && /spin/.test(l.property));
+    assert.ok(spin && spin.durationMs === 4000 && spin.easing === 'linear', 'loop CSS ' + JSON.stringify(spin));
+    const panelEntrances = result.animations.filter((a) => a.kind === 'time' && !a.scrubbed && a.element.selector.includes('panel'));
+    if (page === 'global') assert.equal(panelEntrances.length, 0, 'pezzi della timeline con scrub presi per entrate');
+    assert.ok(quality.issues.some((i) => /WebGL/.test(i.text)), 'WebGL non segnalato');
+    assert.ok(quality.level === 'alta', `affidabilità ${quality.level}: ${quality.issues.map((i) => i.text).join(' | ')}`);
+  });
+}
+
 await check('virtual: scroll di un contenitore (senza window.scrollY)', () => {
   const r = results.virtual;
   assert.ok(r.result.virtualScroll, 'scroll virtuale non attivato');

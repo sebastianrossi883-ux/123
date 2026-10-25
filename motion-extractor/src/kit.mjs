@@ -111,7 +111,7 @@ const bezierPath = (css) => {
 };
 const CSS_EASES = { ease: 'M0,0 C0.25,0.1 0.25,1 1,1', 'ease-in': 'M0,0 C0.42,0 1,1 1,1', 'ease-out': 'M0,0 C0,0 0.58,1 1,1', 'ease-in-out': 'M0,0 C0.42,0 0.58,1 1,1', linear: null };
 
-export function buildKit({ url, result, dna, scene, snippets, libs }) {
+export function buildKit({ url, result, dna, scene, snippets, libs, hoverDiffs }) {
   const anims = result.animations;
   const time = anims.filter((a) => a.kind === 'time' && !a.scrubbed && (a.phase === 'intro' || a.phase === 'scroll'));
   const customEases = {};
@@ -211,26 +211,45 @@ export function buildKit({ url, result, dna, scene, snippets, libs }) {
   // 5. Hover effects measured on the source buttons.
   const cursorSel = new Set(dna.interactions.cursor.map((c) => c.selector).concat(dna.interactions.mouseParallax.map((c) => c.selector)));
   const hovers = [];
-  for (const h of dna.interactions.hover) {
-    const moved = anims.filter((a) => a.kind === 'time' && a.phase === 'hover' && a.hoverTarget === h.target && !cursorSel.has(a.element.selector));
-    const enter = moved.find((a) => a.element.selector === h.target) || moved[0];
-    if (!enter) continue;
-    const to = {};
-    for (const s of enter.segs) Object.assign(to, propsFor(s.ch, s.to, s.last));
-    mergeScale(to);
-    const css = h.effects.find((e) => e.via === 'css');
-    let ease = enter.ease && enter.ease.best.err < 0.04 ? enter.ease.best.name : 'power2.out';
-    const pathCss = css && (bezierPath(css.ease) || CSS_EASES[css.ease]);
-    if (pathCss) {
-      ease = `kit-hover-${hovers.length + 1}`;
-      customEases[ease] = pathCss;
-    }
-    // letters rolling on hover (a staggered group of children): the kit can't tag that, the AI writes it
+  const letterHovers = []; // letters rolling on hover: the kit can't tag that, the AI writes it
+  // Exact end state from the before/after style snapshots; timing from the site's CSS transition
+  // (or the measured motion); letters rolling on hover go to letterHovers (the AI writes those).
+  const diffsByTarget = new Map((hoverDiffs || []).map((h) => [h.target, h.diffs]));
+  const targets = [...new Set([...diffsByTarget.keys(), ...dna.interactions.hover.map((h) => h.target)])];
+  const diffTo = (d) => {
+    if (d.prop !== 'transform') return { [d.prop]: d.to };
+    const o = {};
+    for (const k of ['x', 'y', 'rotation']) if (Math.abs(d.to[k] - d.from[k]) >= 0.5) o[k] = round(d.to[k], 1);
+    if (Math.abs(d.to.scale - d.from.scale) >= 0.005) o.scale = round(d.to.scale, 3);
+    return o;
+  };
+  for (const target of targets) {
+    if (cursorSel.has(target)) continue;
+    const h = dna.interactions.hover.find((x) => x.target === target) || { effects: [] };
     const letters = h.effects.find((e) => e.count > 1 && e.stagger);
-    hovers.push({
-      name: `hover-${hovers.length + 1}`, to, duration: round((css ? css.duration : enter.duration) / 1000), ease, source: h.target,
-      letters: letters ? { count: letters.count, stagger: letters.stagger, duration: round(letters.duration / 1000), ease: letters.ease, props: letters.props } : null,
-    });
+    if (letters) letterHovers.push({ source: target, count: letters.count, stagger: letters.stagger, duration: round(letters.duration / 1000), ease: letters.ease, props: letters.props });
+    const diffs = diffsByTarget.get(target) || [];
+    const to = Object.assign({}, ...diffs.filter((d) => d.self).map(diffTo));
+    const children = [];
+    if (!letters) {
+      for (const d of diffs.filter((x) => !x.self && x.query)) {
+        let c = children.find((x) => x.query === d.query);
+        if (!c) children.push((c = { query: d.query, to: {} }));
+        Object.assign(c.to, diffTo(d));
+      }
+    }
+    const kids = children.filter((c) => Object.keys(c.to).length).slice(0, 4);
+    if (!Object.keys(to).length && !kids.length) continue;
+    const css = h.effects.find((e) => e.via === 'css' && e.element === target) || h.effects.find((e) => e.via === 'css');
+    const own = anims.filter((a) => a.kind === 'time' && a.phase === 'hover' && a.hoverTarget === target && a.element.selector === target).sort((a, b) => a.start - b.start)[0];
+    let ease = own && own.ease && own.ease.best.err < 0.04 ? own.ease.best.name : 'power2.out';
+    const g = gsapEase(css ? css.ease : ease);
+    if (g.path) {
+      ease = `kit-hover-${hovers.length + 1}`;
+      customEases[ease] = g.path;
+    } else ease = g.ease || ease;
+    const duration = round((css ? css.duration : own ? own.duration : 300) / 1000);
+    hovers.push({ name: `hover-${hovers.length + 1}`, to, children: kids, duration, ease, source: target });
   }
 
   const lenisCode = snippets.map((s) => s.code).join('\n');
@@ -241,6 +260,7 @@ export function buildKit({ url, result, dna, scene, snippets, libs }) {
     lenisOpts[k] = v === '!0' || v === 'true' ? true : v === '!1' || v === 'false' ? false : +v;
   }
   const usesLenis = !!(libs && (libs.lenisVersion || libs.lenisHtmlClass)) || Object.keys(lenisOpts).length > 0;
+  const lenisFromCode = Object.keys(lenisOpts).length;
   if (usesLenis && lenisOpts.lerp == null && lenisOpts.duration == null) lenisOpts.lerp = 0.1;
 
   const kit = {
@@ -260,7 +280,9 @@ export function buildKit({ url, result, dna, scene, snippets, libs }) {
     marquee: { speed: median(loopSpeeds) ?? 40 },
     cursor: dna.interactions.cursor.length ? { size: dna.interactions.cursor[0].w, duration: 0.4 } : null,
     hovers,
+    letterHovers,
     lenis: usesLenis ? lenisOpts : null,
+    lenisFromCode,
   };
   kit.tokens = tokensOf(kit);
   return kit;
@@ -386,10 +408,8 @@ export function aiInstructions(kit, { title, url }) {
       : `- **Pin**: \`data-pin\` su una sezione la tiene ferma per ${kit.pin.lengthVh}vh (\`data-pin="200"\` per cambiarlo).`,
     `- **Marquee**: \`data-marquee\` su una riga con il testo ripetuto 2 volte dentro → scorre a ${kit.marquee.speed}px/s.`,
     kit.cursor ? `- **Cursore**: aggiungi \`<div data-cursor></div>\` in fondo al body: cerchio di ${kit.cursor.size}px che segue il mouse.` : '',
-    ...kit.hovers.map((h) => `- **Hover**: \`data-hover="${h.name}"\` sui bottoni → \`${JSON.stringify(h.to)}\` in ${h.duration}s (misurato su \`${h.source}\`).`),
-    ...kit.hovers
-      .filter((h) => h.letters)
-      .map((h) => `- **Hover a lettere** (da scrivere come momento firma con SplitText): su \`${h.source}\` ${h.letters.count} lettere, ${h.letters.props}, ${h.letters.duration}s, \`${h.letters.ease}\`, stagger ${h.letters.stagger}s. Ricetta: dividi il testo in \`chars\` (due copie sovrapposte), al \`mouseenter\` la prima esce e la seconda entra con questi valori, al \`mouseleave\` \`reverse()\`.`),
+    ...kit.hovers.map((h) => `- **Hover**: \`data-hover="${h.name}"\` → \`${JSON.stringify(h.to)}\`${h.children && h.children.length ? ` e dentro ${h.children.map((c) => `\`${c.query}\` → \`${JSON.stringify(c.to)}\``).join(', ')}` : ''} in ${h.duration}s (misurato su \`${h.source}\`).`),
+    ...(kit.letterHovers || []).map((h) => `- **Hover a lettere** (da scrivere come momento firma con SplitText): su \`${h.source}\` ${h.count} lettere, ${h.props}, ${h.duration}s, \`${h.ease}\`, stagger ${h.stagger}s. Ricetta: dividi il testo in \`chars\` (due copie sovrapposte), al \`mouseenter\` la prima esce e la seconda entra con questi valori, al \`mouseleave\` \`reverse()\`.`),
     '',
     '## 6. Esempio',
     '',

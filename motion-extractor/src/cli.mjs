@@ -53,7 +53,7 @@ try {
     if (status === 'ok') done.add(u);
   }
 } catch {
-  await appendFile(indexFile, 'url,stato,secondi,scene,preset,animazioni,cartella,errore\n');
+  await appendFile(indexFile, 'url,stato,secondi,scene,preset,animazioni,cartella,errore,affidabilita,punteggio,avvisi\n');
 }
 const mine = shard ? urls.filter((_, k) => k % shard[1] === shard[0] - 1) : urls;
 if (shard) console.log(`fetta ${shard[0]}/${shard[1]}: ${mine.length} siti su ${urls.length}`);
@@ -74,7 +74,8 @@ async function worker() {
       // "vuoto" = loaded but nothing moved (bot protection, consent wall…): retried on the next run.
       const status = r.result.animations.length ? 'ok' : 'vuoto';
       if (status === 'vuoto') console.error(`⚠ ${url}: nessuna animazione registrata (prova --headed)`);
-      await appendFile(indexFile, [url, status, r.seconds, r.dna.scenes.length, Object.keys(r.kit.presets).length, r.result.animations.length, path.relative(outRoot, r.outDir), ''].map(csv).join(',') + '\n');
+      const warnings = r.quality.issues.filter((i) => i.severity !== 'info').map((i) => i.text).join(' | ');
+      await appendFile(indexFile, [url, status, r.seconds, r.dna.scenes.length, Object.keys(r.kit.presets).length, r.result.animations.length, path.relative(outRoot, r.outDir), '', r.quality.level, r.quality.score, warnings].map(csv).join(',') + '\n');
     } catch (e) {
       failed++;
       console.error(`✗ ${url}: ${e.message}`);

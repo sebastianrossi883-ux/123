@@ -33,6 +33,7 @@ if (cmd === 'catalog') {
     seed,
     from: (flag('--from', '') || '').split(',').filter(Boolean),
     minDistance: Number(flag('--min-distance', 0.08)),
+    includeLow: args.includes('--include-low'),
   });
   const outDir = path.resolve(flag('--out', 'blends'), name);
   await writeBlend(outDir, res, name);

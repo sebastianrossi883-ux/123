@@ -82,7 +82,11 @@
     const vh = innerHeight;
     for (const it of S.tracked) {
       const r = it.el.getBoundingClientRect();
-      if (r.bottom > -vh && r.top < vh * 2) near.add(it.el);
+      const isNear = r.bottom > -vh && r.top < vh * 2;
+      // when it was observed: lets the analysis ignore moments it was not being sampled
+      if (isNear !== it.wasNear) (it.nearLog = it.nearLog || []).push([t, isNear ? 1 : 0]);
+      it.wasNear = isNear;
+      if (isNear) near.add(it.el);
       else near.delete(it.el);
     }
   }
@@ -137,7 +141,7 @@
     if (t - lastCssScan > 250 && document.getAnimations) {
       lastCssScan = t;
       for (const a of document.getAnimations()) {
-        if (seenAnims.has(a) || S.cssAnimations.length > 1500) continue;
+        if (seenAnims.has(a) || S.cssAnimations.length > 5000) continue;
         seenAnims.add(a);
         // CSS animations/transitions (e.g. triggered by an `.is-visible` class) get sampled too.
         if (a.effect && a.effect.target instanceof Element) track(a.effect.target);
@@ -579,6 +583,47 @@
   };
 
   // Interactive elements visible in the first viewport, for the hover test.
+  // Hover end state, exact: computed style of the element (and children) before the hover and once
+  // its transition has finished. Frame sampling would catch intermediate values; this cannot.
+  const SNAP = ['transform', 'opacity', 'color', 'backgroundColor', 'boxShadow', 'borderColor', 'filter', 'clipPath', 'letterSpacing'];
+  const readTransform = (t) => {
+    if (!t || t === 'none') return { x: 0, y: 0, scale: 1, rotation: 0 };
+    const m = new DOMMatrixReadOnly(t);
+    return { x: +m.m41.toFixed(2), y: +m.m42.toFixed(2), scale: +Math.hypot(m.a, m.b).toFixed(3), rotation: +((Math.atan2(m.b, m.a) * 180) / Math.PI).toFixed(1) };
+  };
+  const snap = (el) => {
+    const cs = getComputedStyle(el);
+    return Object.fromEntries(SNAP.map((p) => [p, cs[p]]));
+  };
+  window.__motionHoverBegin = (selector) => {
+    const el = document.querySelector(selector);
+    if (!el) return;
+    const els = [el, ...el.querySelectorAll('*')].slice(0, 24);
+    S._hover = { selector, els, before: els.map(snap) };
+  };
+  window.__motionHoverEnd = () => {
+    const h = S._hover;
+    if (!h) return;
+    const diffs = [];
+    h.els.forEach((el, i) => {
+      const a = h.before[i];
+      const b = snap(el);
+      for (const p of SNAP) {
+        if (a[p] === b[p]) continue;
+        const cls = [...el.classList][0];
+        diffs.push({
+          self: i === 0,
+          query: i === 0 ? null : cls ? '.' + CSS.escape(cls) : el.tagName.toLowerCase(),
+          prop: p,
+          from: p === 'transform' ? readTransform(a[p]) : a[p],
+          to: p === 'transform' ? readTransform(b[p]) : b[p],
+        });
+      }
+    });
+    (S.hovers = S.hovers || []).push({ target: h.selector, diffs: diffs.slice(0, 40) });
+    S._hover = null;
+  };
+
   // One element per "kind" (tag + classes + data-attributes): ten identical links behave the same.
   const hoverKind = (el) =>
     [el.tagName, ...[...el.classList].sort(), ...[...el.attributes].map((a) => a.name).filter((n) => n.startsWith('data-')).sort()].join('.');
@@ -662,11 +707,13 @@
           text: it.text,
           firstSeen: it.firstSeen,
           animatedByGsap: !!it.el._gsap,
+          nearLog: it.nearLog || [],
           meta: it.el.isConnected ? meta(it.el) : null,
           rows: it.rows,
         })),
       calls: S.calls,
       marks: S.marks,
+      hovers: S.hovers || [],
       scrollTriggers,
       cssAnimations: S.cssAnimations,
       inlineScripts: [...document.querySelectorAll('script:not([src])')]

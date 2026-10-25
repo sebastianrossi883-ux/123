@@ -46,6 +46,28 @@ Opzioni: `--max-scroll 15000` (px da scorrere), `--step 400` (px per step), `--p
 `--hover-targets 6`, `--parallel 3` (più siti alla volta), `--fast` (step 600px e pause 1.3s:
 circa 2× più veloce, start/end meno precisi).
 
+## Affidabilità di ogni DNA
+
+Ogni sito ha `affidabilita.md` (e la colonna `affidabilita` in `index.csv`): lo strumento confronta
+le sue misure con quello che il sito rivela di sé e con quello che sa di non poter vedere.
+
+| controllo | se fallisce |
+|---|---|
+| pin dagli ScrollTrigger dal vivo = pin trovati | 🔴 alta |
+| scrub dal vivo ma nessuna animazione di scroll misurata | 🔴 alta |
+| pagina non scorsa fino in fondo | 🔴 alta |
+| script non caricati (codice delle animazioni mancante) | 🔴 alta |
+| nessuna animazione registrata (anti-bot, muro dei cookie) | 🔴 alta |
+| errori JavaScript nella pagina | 🟠 media |
+| limiti raggiunti (400 elementi, 5000 animazioni CSS, 3000 chiamate GSAP) | 🟠 media |
+| effetti WebGL (non misurabili) | 🟠 media |
+| curve stimate con scarto alto | 🟠 media |
+| quante entrate hanno easing esatto (dal codice) e quante stimato | ℹ️ |
+
+Livello `alta` (≥80/100), `media` (≥55), `bassa`. **I DNA `bassa` non entrano mai nei mix**
+(`--include-low` per forzarli). Nota: una copia scaricata del sito può risultare peggiore
+dell'originale online, perché gli script da CDN non si caricano (lo strumento lo segnala).
+
 ## Siti unici: catalogo, mix, verifica
 
 Usare il DNA di un solo sito per un cliente vuol dire copiarlo. Con tanti siti estratti puoi creare
