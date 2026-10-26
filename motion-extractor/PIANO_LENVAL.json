@@ -1,0 +1,27 @@
+{
+  "urls": [
+    "https://lenvalproperties.com/",
+    "https://lenvalproperties.com/about",
+    "https://lenvalproperties.com/projects",
+    "https://lenvalproperties.com/contact",
+    "https://lenvalproperties.com/projects/project-j",
+    "https://lenvalproperties.com/projects/project-s",
+    "https://lenvalproperties.com/projects/the-den"
+  ],
+  "parallel": 2,
+  "sourceUrl": "59707.js",
+  "hooks": {
+    "initPageTransitions": "source-scene:continue"
+  },
+  "actions": [
+    {
+      "selector": "[data-modal-menu-btn]:visible",
+      "wait": 1500
+    },
+    {
+      "selector": "[data-modal-menu-btn]:visible",
+      "wait": 1500
+    }
+  ],
+  "out": "./out/lenval"
+}
